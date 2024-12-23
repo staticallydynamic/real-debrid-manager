@@ -1,0 +1,19 @@
+{
+  "name": "real-debrid-extension",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "zip": "wxt zip"
+  },
+  "devDependencies": {
+    "@tsconfig/svelte": "^5.0.4",
+    "@types/chrome": "^0.0.287",
+    "@wxt-dev/module-svelte": "^2.0.2",
+    "svelte": "^5.15.0",
+    "svelte-check": "^4.1.1",
+    "typescript": "^5.7.2",
+    "wxt": "^0.19.22"
+  }
+}
