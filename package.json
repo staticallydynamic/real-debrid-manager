@@ -3,9 +3,13 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "wxt",
-    "build": "wxt build",
-    "zip": "wxt zip"
+    "dev": "wxt", 
+    "dev:firefox": "wxt -b firefox", 
+    "build": "wxt build", 
+    "build:firefox": "wxt build -b firefox", 
+    "zip": "wxt zip", 
+    "zip:firefox": "wxt zip -b firefox", 
+    "postinstall": "wxt prepare"
   },
   "devDependencies": {
     "@tsconfig/svelte": "^5.0.4",
