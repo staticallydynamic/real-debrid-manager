@@ -1,19 +1,33 @@
 <script lang="ts">
   import ApiKeyInput from "@/lib/components/ApiKeyInput.svelte";
   import type { User } from "../../lib/shared/types";
-
   import { onMount } from "svelte";
+  import { CacheManager } from "@/lib/shared/CacheManager";
+
+  const cache = CacheManager.getInstance();
+  const USER_CACHE_KEY = "rd_user_info";
+  const USER_CACHE_TTL = 15; // minutes
+
   let currentApiKey = $state("");
   let userInfo = $state<User | null>(null);
   let error = $state("");
-
   let showApiKey = $state(false);
+
   function toggleApiKey() {
     showApiKey = !showApiKey;
   }
 
   async function getUserInfo() {
     try {
+      // Check cache first
+      const cachedUser = await cache.get<User>(USER_CACHE_KEY);
+      if (cachedUser) {
+        console.log("Using cached user info");
+        userInfo = cachedUser;
+        error = "";
+        return;
+      }
+
       const response = await fetch(
         "https://api.real-debrid.com/rest/1.0/user",
         {
@@ -21,7 +35,10 @@
         },
       );
       if (response.ok) {
-        userInfo = await response.json();
+        const data = await response.json();
+        userInfo = data;
+        // Cache the response
+        await cache.set(USER_CACHE_KEY, data, USER_CACHE_TTL);
         error = "";
       } else {
         userInfo = null;
@@ -53,10 +70,11 @@
   async function handleApiKeyChange(apiKey: string) {
     try {
       await chrome.storage.local.set({ rdApiKey: apiKey });
-
+      // Clear cache when API key changes
+      await cache.clear(USER_CACHE_KEY);
       currentApiKey = apiKey;
     } catch (e) {
-      console.error("Error saving API key", e);
+      console.error("Error saving API key:", e);
     }
   }
 </script>
@@ -105,7 +123,7 @@
               <span class="points-label">POINTS</span>
               <span class="points-value">{userInfo.points}</span>
             </div>
-            
+
             {#if userInfo.type === "premium"}
               <div class="premium-days">
                 <span class="days-label">PREMIUM DAYS</span>
