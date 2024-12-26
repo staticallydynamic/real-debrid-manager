@@ -3,6 +3,7 @@
   import type { User } from "../../lib/shared/types";
   import { onMount } from "svelte";
   import { CacheManager } from "@/lib/shared/CacheManager";
+  import TorrentManager from "@/lib/components/TorrentManager.svelte";
 
   const cache = CacheManager.getInstance();
   const USER_CACHE_KEY = "rd_user_info";
@@ -135,6 +136,9 @@
           </div>
         </div>
       </div>
+
+      <!-- Render list of all torrents -->
+      <TorrentManager apiKey={currentApiKey} />
     {/if}
   </div>
 </div>
