@@ -9,12 +9,20 @@
   let currentTorrentFiles = $state<any[]>([]);
   let currentTorrentId = $state("");
 
+  // Link states
+  let loadingLinks = $state<{ [key: string]: boolean }>({});
+  let showCopyNotification = $state(false);
+
   const { apiKey } = $props<{
     apiKey: string;
   }>();
 
-  async function getUnrestrictedLink(link: string) {
+  async function getUnrestrictedLink(link: string, torrentId: string) {
+    if (loadingLinks[torrentId]) return; //prevent double click]
+
     try {
+      loadingLinks[torrentId] = true;
+
       const formData = new URLSearchParams();
       formData.append("link", link);
 
@@ -38,9 +46,15 @@
 
       // Copy to clipboard
       await navigator.clipboard.writeText(data.download);
+      showCopyNotification = true;
+      setTimeout(() => {
+        showCopyNotification = false;
+      }, 3000);
     } catch (e) {
       error = e.message;
       console.error("Error getting unrestricted link:", e);
+    } finally {
+      loadingLinks[torrentId] = false;
     }
   }
 
@@ -257,12 +271,23 @@
               {:else if torrent.status === "downloaded" && torrent.links?.length > 0}
                 <button
                   class="button is-info is-small mr-2"
-                  onclick={() => getUnrestrictedLink(torrent.links[0])}
+                  onclick={() =>
+                    getUnrestrictedLink(torrent.links[0], torrent.id)}
+                  disabled={loadingLinks[torrent.id]}
                 >
                   <span class="icon">
-                    <i class="fas fa-link"></i>
+                    <i
+                      class="fas"
+                      class:fa-link={!loadingLinks[torrent.id]}
+                      class:fa-spinner={loadingLinks[torrent.id]}
+                      class:fa-spin={loadingLinks[torrent.id]}
+                    ></i>
                   </span>
-                  <span>Get Link</span>
+                  <span
+                    >{loadingLinks[torrent.id]
+                      ? "Copying..."
+                      : "Get Link"}</span
+                  >
                 </button>
               {/if}
               <button
@@ -338,6 +363,16 @@
     </footer>
   </div>
 </div>
+
+{#if showCopyNotification}
+  <div class="notification-wrapper">
+    <div class="notification is-success is-light">
+      <button class="delete" onclick={() => (showCopyNotification = false)}
+      ></button>
+      Link copied to clipboard!
+    </div>
+  </div>
+{/if}
 
 <style>
   .torrent-manager {
@@ -479,5 +514,33 @@
   .file-size {
     color: #90caf9;
     font-size: 0.8rem;
+  }
+
+  .notification-wrapper {
+    position: fixed;
+    bottom: 1rem;
+    right: 1rem;
+    z-index: 1000;
+  }
+
+  :global(.notification.is-success.is-light) {
+    background-color: rgba(72, 199, 142, 0.1);
+    color: #48c78e;
+    border: 1px solid rgba(72, 199, 142, 0.2);
+    margin: 0;
+    padding-right: 2rem;
+  }
+
+  :global(.fa-spin) {
+    animation: fa-spin 2s infinite linear;
+  }
+
+  @keyframes fa-spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
   }
 </style>
