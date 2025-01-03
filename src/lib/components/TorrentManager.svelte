@@ -89,7 +89,9 @@
       const data = await response.json();
       torrents = data.filter(
         (t) =>
-          t.status === "downloaded" || t.status === "waiting_files_selection",
+          t.status === "downloaded" ||
+          t.status === "waiting_files_selection" ||
+          t.status === "magnet_conversion",
       );
     } catch (e) {
       error = e.message;
@@ -225,10 +227,12 @@
                     <span
                       class="tag status-tag"
                       class:is-waiting={torrent.status ===
-                        "waiting_files_selection"}
+                        "waiting_files_selection" ||
+                        torrent.status === "magnet_conversion"}
                       class:is-downloaded={torrent.status === "downloaded"}
                     >
-                      {torrent.status === "waiting_files_selection"
+                      {torrent.status === "waiting_files_selection" ||
+                      torrent.status === "magnet_conversion"
                         ? "Waiting"
                         : "Downloaded"}
                     </span>
@@ -240,7 +244,7 @@
               </div>
             </div>
             <div class="level-right">
-              {#if torrent.status === "waiting_files_selection"}
+              {#if torrent.status === "waiting_files_selection" || torrent.status === "magnet_conversion"}
                 <button
                   class="button is-success is-small mr-2"
                   onclick={() => getTorrentInfo(torrent.id)}
