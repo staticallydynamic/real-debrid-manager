@@ -36,8 +36,15 @@ A powerful browser extension for managing your Real-Debrid downloads and torrent
 
 - Node.js (Latest LTS version recommended)
 - npm or yarn
-- Chrome/Chromium-based browser
+- Chrome/Chromium-based browser or Firefox
 - Real-Debrid account and API key
+
+### Browser Support
+
+- **Chrome/Chromium**: Version 88 or later
+- **Firefox**: Version 89 or later
+
+Note: While the extension works in both Chrome and Firefox, some features might behave slightly differently due to browser-specific APIs.
 
 ### Installation
 
@@ -54,14 +61,37 @@ npm install
 
 3. Build the extension:
 ```bash
-npm run build
+# Build for both Chrome and Firefox
+npm run build:all
+
+# Or build individually
+npm run build        # Chrome only
+npm run build:firefox  # Firefox only
 ```
 
-4. Load the extension in Chrome:
-   - Open Chrome and navigate to `chrome://extensions/`
-   - Enable "Developer mode"
-   - Click "Load unpacked"
-   - Select the `dist` directory from your build
+The build process creates browser-specific outputs in the `.output` directory:
+- `.output/chrome-mv3/` - Chrome/Chromium build (Manifest V3)
+- `.output/firefox-mv2/` - Firefox build (Manifest V2)
+
+Note: The dual build system accounts for the different manifest versions required by each browser:
+- Chrome requires Manifest V3
+- Firefox currently uses Manifest V2
+
+#### Loading in Chrome/Chromium browsers
+
+1. Open Chrome and navigate to `chrome://extensions/`
+2. Enable "Developer mode" in the top right corner
+3. Click "Load unpacked" in the top left corner
+4. Select the `.output/chrome-mv3` directory from your build
+
+#### Loading in Firefox
+
+1. Open Firefox and navigate to `about:debugging`
+2. Click "This Firefox" in the left sidebar
+3. Click "Load Temporary Add-on..."
+4. Navigate to your project's `.output/firefox-mv2` directory and select the `manifest.json` file
+
+Note: Firefox temporary add-ons will be removed when Firefox is closed. For permanent installation, you'll need to submit the extension to Firefox Add-ons.
 
 ### Configuration
 
@@ -78,22 +108,49 @@ To start development server:
 npm run dev
 ```
 
-The project uses the following structure:
+### Browser-specific Development Notes
+
+#### Chrome/Chromium
+- Changes to the extension require manually clicking the refresh button in `chrome://extensions/`
+- Background scripts can be debugged through the extension page in `chrome://extensions/`
+- Use Chrome DevTools' "Inspect popup" feature to debug the extension popup
+
+#### Firefox
+- Use `about:debugging#/runtime/this-firefox` to debug the extension
+- The "Inspect" button lets you debug popup and background scripts
+- Use Firefox Browser Toolbox for advanced debugging (Enable in Firefox Developer Tools settings)
+
+### Hot Reload During Development
+
+For convenience during development, you can use extensions that enable hot-reloading:
+- Chrome: "Extensions Reloader" or similar
+- Firefox: "Extension Auto-Reload" or similar
+
+### Project Structure
+
+The source code is organized as follows:
 
 ```
-├── src/
+├── src/                      # Source code
 │   ├── lib/
-│   │   ├── components/
+│   │   ├── components/      # Svelte components
 │   │   │   ├── AddMagnet.svelte
 │   │   │   ├── ApiKeyInput.svelte
 │   │   │   └── TorrentManager.svelte
-│   │   └── shared/
+│   │   └── shared/         # Shared utilities and types
 │   │       ├── CacheManager.ts
 │   │       └── types.ts
-│   ├── App.svelte
-│   ├── app.css
-│   ├── index.html
-│   └── main.ts
+│   ├── App.svelte          # Main application component
+│   ├── app.css            # Global styles
+│   ├── index.html         # HTML template
+│   └── main.ts           # Application entry point
+├── .output/               # Build outputs
+│   ├── chrome-mv3/       # Chrome build (Manifest V3)
+│   │   ├── manifest.json
+│   │   └── ...
+│   └── firefox-mv2/      # Firefox build (Manifest V2)
+│       ├── manifest.json
+│       └── ...
 ```
 
 ## Contributing
