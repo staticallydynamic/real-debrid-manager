@@ -5,6 +5,12 @@ export default defineConfig({
   srcDir: 'src',
   extensionApi: 'chrome',
   manifest: {
+    browser_specific_settings: {
+      gecko: {
+        id: "supamerz@gmail.com",
+        strict_min_version: "57.0"
+      }
+    },
     version: '1.0.0',
     permissions: ['storage'],
     host_permissions: [

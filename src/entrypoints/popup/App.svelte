@@ -2,10 +2,10 @@
   import ApiKeyInput from "@/lib/components/ApiKeyInput.svelte";
   import type { User } from "../../lib/shared/types";
   import { onMount } from "svelte";
-  import { CacheManager } from "@/lib/shared/CacheManager";
+  import { StorageManager } from "@/lib/shared/StorageManager";
   import TorrentManager from "@/lib/components/TorrentManager.svelte";
 
-  const cache = CacheManager.getInstance();
+  const storage = StorageManager.getInstance();
   const USER_CACHE_KEY = "rd_user_info";
   const USER_CACHE_TTL = 15; // minutes
 
@@ -21,7 +21,7 @@
   async function getUserInfo() {
     try {
       // Check cache first
-      const cachedUser = await cache.get<User>(USER_CACHE_KEY);
+      const cachedUser = await storage.get<User>(USER_CACHE_KEY);
       if (cachedUser) {
         console.log("Using cached user info");
         userInfo = cachedUser;
@@ -39,7 +39,7 @@
         const data = await response.json();
         userInfo = data;
         // Cache the response
-        await cache.set(USER_CACHE_KEY, data, USER_CACHE_TTL);
+        await storage.set(USER_CACHE_KEY, data, USER_CACHE_TTL);
         error = "";
       } else {
         userInfo = null;
@@ -51,15 +51,9 @@
     }
   }
 
-  onMount(() => {
-    if (typeof chrome !== "undefined" && chrome.storage) {
-      chrome.storage.local
-        .get(["rdApiKey"])
-        .then((result) => {
-          currentApiKey = result.rdApiKey || "";
-        })
-        .catch((err) => console.error("Storage error:", err));
-    }
+  onMount(async () => {
+    currentApiKey = await storage.getApiKey();
+    // .catch((err) => console.error("Error getting API from storage.", err));
   });
 
   $effect(() => {
@@ -70,9 +64,9 @@
 
   async function handleApiKeyChange(apiKey: string) {
     try {
-      await chrome.storage.local.set({ rdApiKey: apiKey });
+      await storage.setApiKey(apiKey);
       // Clear cache when API key changes
-      await cache.clear(USER_CACHE_KEY);
+      await storage.clear(USER_CACHE_KEY);
       currentApiKey = apiKey;
     } catch (e) {
       console.error("Error saving API key:", e);
@@ -89,7 +83,7 @@
 
     <div class="api-section" class:connected={userInfo}>
       <div class="settings-container">
-        <button class="settings-btn" on:click={toggleApiKey}>
+        <button class="settings-btn" onclick={toggleApiKey}>
           <i class="fas fa-cog"></i>
           Settings
         </button>
