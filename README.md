@@ -2,7 +2,7 @@
 
 A powerful browser extension for managing your Real-Debrid downloads and torrents. This extension provides a clean, intuitive interface for interacting with the Real-Debrid API, making it easier to manage your downloads and torrents directly from your browser.
 
-![Real-Debrid Manager Screenshot](placeholder-for-screenshot.png)
+![Real-Debrid Manager Screenshot](screenshot.png)
 
 ## Features
 
