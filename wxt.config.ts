@@ -5,6 +5,10 @@ export default defineConfig({
   srcDir: 'src',
   extensionApi: 'chrome',
   manifest: {
+    icons: {
+      96: 'icon/magnet-96.png',
+      128: 'icon/magnet-128.png',
+    },
     browser_specific_settings: {
       gecko: {
         id: "supamerz@gmail.com",
