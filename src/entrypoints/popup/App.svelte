@@ -1,17 +1,18 @@
 <script lang="ts">
-  import ApiKeyInput from "@/lib/components/ApiKeyInput.svelte";
-  import type { User } from "../../lib/shared/types";
-  import { onMount } from "svelte";
-  import { StorageManager } from "@/lib/shared/StorageManager";
-  import TorrentManager from "@/lib/components/TorrentManager.svelte";
+  import ApiKeyInput from '@/lib/components/ApiKeyInput.svelte';
+  import type { User } from '../../lib/shared/types';
+  import { onMount } from 'svelte';
+  import { StorageManager } from '@/lib/shared/StorageManager';
+  import { RealDebridAPI } from '@/lib/shared/RealDebridAPI';
+  import TorrentManager from '@/lib/components/TorrentManager.svelte';
+  import { CACHE_KEYS, CACHE_TTL } from '@/lib/shared/constants';
+  import type { AppError } from '@/lib/shared/errors';
 
   const storage = StorageManager.getInstance();
-  const USER_CACHE_KEY = "rd_user_info";
-  const USER_CACHE_TTL = 15; // minutes
 
-  let currentApiKey = $state("");
+  let currentApiKey = $state('');
   let userInfo = $state<User | null>(null);
-  let error = $state("");
+  let error = $state('');
   let showApiKey = $state(false);
 
   function toggleApiKey() {
@@ -19,35 +20,29 @@
   }
 
   async function getUserInfo() {
+    if (!currentApiKey) {return;}
+
     try {
       // Check cache first
-      const cachedUser = await storage.get<User>(USER_CACHE_KEY);
+      const cachedUser = await storage.get<User>(CACHE_KEYS.USER_INFO);
       if (cachedUser) {
-        console.log("Using cached user info");
+        console.log('Using cached user info');
         userInfo = cachedUser;
-        error = "";
+        error = '';
         return;
       }
 
-      const response = await fetch(
-        "https://api.real-debrid.com/rest/1.0/user",
-        {
-          headers: { Authorization: `Bearer ${currentApiKey}` },
-        },
-      );
-      if (response.ok) {
-        const data = await response.json();
-        userInfo = data;
-        // Cache the response
-        await storage.set(USER_CACHE_KEY, data, USER_CACHE_TTL);
-        error = "";
-      } else {
-        userInfo = null;
-        error = `Error: ${response.status} - Bad Token`;
-        console.error("Failed to fetch user info: ", response.statusText);
-      }
-    } catch (error) {
-      console.error("Error fetching user info:", error);
+      const api = new RealDebridAPI(currentApiKey);
+      const userData = await api.getUserInfo();
+      userInfo = userData;
+      // Cache the response
+      await storage.set(CACHE_KEYS.USER_INFO, userData, CACHE_TTL.USER_INFO);
+      error = '';
+    } catch (err) {
+      userInfo = null;
+      const appError = err as AppError;
+      error = appError.userMessage || appError.message;
+      console.error('Error fetching user info:', err);
     }
   }
 
@@ -66,10 +61,10 @@
     try {
       await storage.setApiKey(apiKey);
       // Clear cache when API key changes
-      await storage.clear(USER_CACHE_KEY);
+      await storage.clear(CACHE_KEYS.USER_INFO);
       currentApiKey = apiKey;
     } catch (e) {
-      console.error("Error saving API key:", e);
+      console.error('Error saving API key:', e);
     }
   }
 </script>
@@ -92,9 +87,8 @@
             <h3>API Key Settings</h3>
             <ApiKeyInput {handleApiKeyChange} initialValue={currentApiKey} />
             <small>
-              Get your API key from <a
-                href="https://real-debrid.com/apitoken"
-                target="_blank">real-debrid.com/apitoken</a
+              Get your API key from <a href="https://real-debrid.com/apitoken" target="_blank"
+                >real-debrid.com/apitoken</a
               >
             </small>
           </div>
@@ -119,12 +113,10 @@
               <span class="points-value">{userInfo.points}</span>
             </div>
 
-            {#if userInfo.type === "premium"}
+            {#if userInfo.type === 'premium'}
               <div class="premium-days">
                 <span class="days-label">PREMIUM DAYS</span>
-                <span class="days-value"
-                  >{Math.floor(userInfo.premium / 86400)}</span
-                >
+                <span class="days-value">{Math.floor(userInfo.premium / 86400)}</span>
               </div>
             {/if}
           </div>
