@@ -5,8 +5,10 @@
   import { StorageManager } from '@/lib/shared/StorageManager';
   import { RealDebridAPI } from '@/lib/shared/RealDebridAPI';
   import TorrentManager from '@/lib/components/TorrentManager.svelte';
+  import ToastContainer from '@/lib/components/ToastContainer.svelte';
   import { CACHE_KEYS, CACHE_TTL } from '@/lib/shared/constants';
   import type { AppError } from '@/lib/shared/errors';
+  import { toastManager } from '@/lib/shared/toastManager';
 
   const storage = StorageManager.getInstance();
 
@@ -42,6 +44,7 @@
       userInfo = null;
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to fetch user info');
       console.error('Error fetching user info:', err);
     }
   }
@@ -65,6 +68,7 @@
       currentApiKey = apiKey;
     } catch (e) {
       console.error('Error saving API key:', e);
+      toastManager.error('Failed to save API key');
     }
   }
 </script>
@@ -128,6 +132,9 @@
     {/if}
   </div>
 </div>
+
+<!-- Toast notifications -->
+<ToastContainer />
 
 <style>
   .container {

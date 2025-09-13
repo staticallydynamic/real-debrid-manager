@@ -24,7 +24,7 @@ export interface Torrent {
     bytes: number
     host: string
     progress: number // 0-100
-    status: 'downloading' | 'downloaded' | 'error' | 'virus' | 'compressing' | 'uploading' | 'dead' | 'waiting_files_selection' | 'magnet_conversion' | 'queued'
+    status: 'downloading' | 'downloaded' | 'error' | 'virus' | 'compressing' | 'uploading' | 'dead' | 'waiting_files_selection' | 'magnet_conversion' | 'queued' | 'magnet_error'
     added: string // JSON date
     links: string[]
     files?: TorrentFile[]

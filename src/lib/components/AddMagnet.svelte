@@ -3,6 +3,7 @@
   import type { AvailableHost } from '@/lib/shared/types';
   import type { AppError } from '@/lib/shared/errors';
   import { UI_CONFIG } from '@/lib/shared/constants';
+  import { toastManager } from '@/lib/shared/toastManager';
 
   let magnetLink = $state('');
   let availableHosts = $state<string[]>([]);
@@ -12,8 +13,9 @@
   let error = $state('');
   let showModal = $state(false);
 
-  const { apiKey } = $props<{
+  const { apiKey, onMagnetAdded } = $props<{
     apiKey: string;
+    onMagnetAdded?: () => void;
   }>();
 
   function toggleModal() {
@@ -49,6 +51,13 @@
 
       success = true;
       magnetLink = '';
+      toastManager.success('Magnet link added successfully!');
+      
+      // Notify parent component to refresh torrents
+      if (onMagnetAdded) {
+        onMagnetAdded();
+      }
+      
       setTimeout(() => {
         success = false;
         showModal = false;
@@ -56,6 +65,7 @@
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to add magnet link');
       console.error('Error adding magnet:', err);
     } finally {
       loading = false;
@@ -126,9 +136,6 @@
           </div>
         {/if}
 
-        {#if success}
-          <div class="notification is-success is-light">Magnet link successfully added!</div>
-        {/if}
       </div>
     </div>
     <button onclick={toggleModal} class="modal-close is-large" aria-label="close"></button>

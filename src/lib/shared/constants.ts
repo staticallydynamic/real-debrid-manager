@@ -34,3 +34,8 @@ export const FILE_SIZE = {
     BYTES_PER_MB: 1024 * 1024,
     BYTES_PER_GB: 1024 * 1024 * 1024,
 } as const;
+
+// Regular expressions
+export const REGEX = {
+    MAGNET_LINK: /^magnet:\?xt=urn:btih:[a-fA-F0-9]{32,40}/,
+} as const;

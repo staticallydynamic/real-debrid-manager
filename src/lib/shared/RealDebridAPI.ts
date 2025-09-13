@@ -29,7 +29,27 @@ export class RealDebridAPI {
                 throw createErrorFromResponse(response.status, response.statusText);
             }
 
-            return response.json() as Promise<T>;
+            // Check if response has content to parse
+            const contentType = response.headers.get('content-type');
+            const contentLength = response.headers.get('content-length');
+            
+            // If no content or not JSON, return undefined for void operations
+            if (contentLength === '0' || !contentType?.includes('application/json')) {
+                return undefined as T;
+            }
+
+            // Try to parse JSON, but handle empty responses gracefully
+            const text = await response.text();
+            if (!text) {
+                return undefined as T;
+            }
+
+            try {
+                return JSON.parse(text) as T;
+            } catch (jsonError) {
+                console.warn('Failed to parse JSON response:', text);
+                return undefined as T;
+            }
         } catch (error) {
             if (error instanceof TypeError) {
                 // Network errors (fetch failures)

@@ -1,9 +1,9 @@
 <script lang="ts">
   import AddMagnet from './AddMagnet.svelte';
-  import type { Torrent, TorrentFile, UnrestrictedLink } from '@/lib/shared/types';
+  import type { Torrent, TorrentFile } from '@/lib/shared/types';
   import type { AppError } from '@/lib/shared/errors';
   import { RealDebridAPI } from '@/lib/shared/RealDebridAPI';
-  import { UI_CONFIG } from '@/lib/shared/constants';
+  import { toastManager } from '@/lib/shared/toastManager';
 
   let torrents = $state<Torrent[]>([]);
   let loading = $state(false);
@@ -17,7 +17,7 @@
 
   // Link states
   const loadingLinks = $state<{ [key: string]: boolean }>({});
-  let showCopyNotification = $state(false);
+  let deletingTorrent = $state(false);
 
   const { apiKey } = $props<{
     apiKey: string;
@@ -34,14 +34,12 @@
 
       // Copy to clipboard
       await navigator.clipboard.writeText(data.download);
-      showCopyNotification = true;
-      setTimeout(() => {
-        showCopyNotification = false;
-      }, UI_CONFIG.NOTIFICATION_DURATION);
+      toastManager.success('Download link copied to clipboard!');
       error = '';
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to get download link');
       console.error('Error getting unrestricted link:', err);
     } finally {
       loadingLinks[torrentId] = false;
@@ -61,6 +59,7 @@
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to fetch torrent info');
       console.error('Error fetching torrent info:', err);
     }
   }
@@ -74,16 +73,24 @@
     try {
       const api = new RealDebridAPI(apiKey);
       const data = await api.getTorrents();
+      
+      console.log('Raw torrent data from API:', data);
+      console.log('Torrent statuses:', data.map(t => ({ id: t.id, filename: t.filename, status: t.status })));
 
-      torrents = data.filter(
+      const filteredTorrents = data.filter(
         t =>
           t.status === 'downloaded' ||
           t.status === 'waiting_files_selection' ||
-          t.status === 'magnet_conversion'
+          t.status === 'magnet_conversion' ||
+          t.status === 'magnet_error'
       );
+      
+      console.log('Filtered torrents:', filteredTorrents.map(t => ({ id: t.id, filename: t.filename, status: t.status })));
+      torrents = filteredTorrents;
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to fetch torrents');
       console.error('Error fetching torrents:', err);
     } finally {
       loading = false;
@@ -91,15 +98,20 @@
   }
 
   async function deleteTorrent(torrentId: string) {
+    deletingTorrent = true;
     try {
       const api = new RealDebridAPI(apiKey);
       await api.deleteTorrent(torrentId);
       await fetchTorrents();
+      toastManager.success('Torrent deleted successfully');
       error = '';
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to delete torrent');
       console.error('Error deleting torrent:', err);
+    } finally {
+      deletingTorrent = false;
     }
   }
 
@@ -113,10 +125,12 @@
 
       showFileModal = false;
       await fetchTorrents();
+      toastManager.success('Files selected for download');
       error = '';
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to select files');
       console.error('Error selecting files:', err);
     }
   }
@@ -152,7 +166,7 @@
     </div>
     <div class="column is-narrow">
       <div class="buttons are-small">
-        <AddMagnet {apiKey} />
+        <AddMagnet {apiKey} onMagnetAdded={fetchTorrents} />
         <button class="button is-info" onclick={fetchTorrents} disabled={loading}>
           <span class="icon">
             <i class="fas fa-sync-alt" class:fa-spin={loading}></i>
@@ -186,7 +200,7 @@
             <div class="level-left">
               <div class="level-item">
                 <div>
-                  <p class="title is-6" style="width: 375px;">
+                  <p class="title is-6" style="width: 350px;">
                     {torrent.filename}
                   </p>
                   <div class="torrent-meta">
@@ -195,10 +209,13 @@
                       class:is-waiting={torrent.status === 'waiting_files_selection' ||
                         torrent.status === 'magnet_conversion'}
                       class:is-downloaded={torrent.status === 'downloaded'}
+                      class:is-error={torrent.status === 'magnet_error'}
                     >
                       {torrent.status === 'waiting_files_selection' ||
                       torrent.status === 'magnet_conversion'
                         ? 'Waiting'
+                        : torrent.status === 'magnet_error'
+                        ? 'Error'
                         : 'Downloaded'}
                     </span>
                     <span class="size-tag">
@@ -209,15 +226,17 @@
               </div>
             </div>
             <div class="level-right">
-              {#if torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion'}
+              {#if torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion' || torrent.status === 'magnet_error'}
                 <button
-                  class="button is-success is-small mr-2"
+                  class="button is-small mr-2"
+                  class:is-success={torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion'}
+                  class:is-warning={torrent.status === 'magnet_error'}
                   onclick={() => getTorrentInfo(torrent.id)}
                 >
                   <span class="icon">
                     <i class="fas fa-file-import"></i>
                   </span>
-                  <span>Select Files</span>
+                  <span>{torrent.status === 'magnet_error' ? 'Retry Files' : 'Select Files'}</span>
                 </button>
               {:else if torrent.status === 'downloaded' && torrent.links?.length > 0}
                 <button
@@ -313,9 +332,12 @@
     <footer class="modal-card-foot">
       <button
         class="button is-danger"
-        onclick={() => {
-          deleteTorrent(torrentToDelete);
+        class:is-loading={deletingTorrent}
+        disabled={deletingTorrent}
+        onclick={async () => {
+          await deleteTorrent(torrentToDelete);
           showDeleteModal = false;
+          torrentToDelete = '';
         }}
       >
         Delete
@@ -325,15 +347,6 @@
   </div>
 </div>
 
-<!-- Notification Modal -->
-{#if showCopyNotification}
-  <div class="notification-wrapper">
-    <div class="notification is-success is-light">
-      <button class="delete" onclick={() => (showCopyNotification = false)} aria-label="Close notification"></button>
-      Link copied to clipboard!
-    </div>
-  </div>
-{/if}
 
 <style>
   /* Base Container Styles */
@@ -401,8 +414,9 @@
   .torrent-meta {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 1rem;
     max-width: 100%;
+    flex-wrap: wrap;
   }
 
   .status-tag {
@@ -420,6 +434,10 @@
   .status-tag.is-downloaded {
     background-color: rgba(76, 175, 80, 0.2);
     color: #4caf50;
+  }
+  .status-tag.is-error {
+    background-color: rgba(244, 67, 54, 0.2);
+    color: #f44336;
   }
 
   .size-tag {
@@ -586,13 +604,6 @@
     padding: 1rem;
   }
 
-  /* Notification Styles */
-  .notification-wrapper {
-    position: fixed;
-    bottom: 1rem;
-    right: 1rem;
-    z-index: 1000;
-  }
 
   :global(.notification.is-info.is-light) {
     background-color: rgba(33, 150, 243, 0.1);

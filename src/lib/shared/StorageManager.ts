@@ -22,7 +22,7 @@ export class StorageManager {
                 } else {
                     throw new Error('chrome.storage exists but is not fully implemented');
                 }
-            } catch (e) {
+            } catch {
                 // If we get here, we need to use the browser API
                 if (typeof browser !== 'undefined') {
                     this.storage = browser.storage.local;
