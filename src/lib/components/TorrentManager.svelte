@@ -242,6 +242,7 @@
                   showDeleteModal = true;
                   torrentToDelete = torrent.id;
                 }}
+                aria-label="Delete torrent"
               >
                 <span class="icon">
                   <i class="fas fa-trash"></i>
@@ -328,7 +329,7 @@
 {#if showCopyNotification}
   <div class="notification-wrapper">
     <div class="notification is-success is-light">
-      <button class="delete" onclick={() => (showCopyNotification = false)}></button>
+      <button class="delete" onclick={() => (showCopyNotification = false)} aria-label="Close notification"></button>
       Link copied to clipboard!
     </div>
   </div>

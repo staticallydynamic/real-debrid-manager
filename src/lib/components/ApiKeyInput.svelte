@@ -33,7 +33,7 @@
       />
     </div>
     <div class="control">
-      <button class="button" onclick={toggleVisibility}>
+      <button class="button" onclick={toggleVisibility} aria-label={showApiKey ? 'Hide API key' : 'Show API key'}>
         <i class="fas fa-{showApiKey ? 'eye-slash' : 'eye'}"></i>
       </button>
     </div>
