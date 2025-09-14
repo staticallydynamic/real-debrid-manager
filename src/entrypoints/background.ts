@@ -21,17 +21,34 @@ export default defineBackground(() => {
       magnetLink = info.linkUrl;
     } else if (info.menuItemId === 'add-magnet-text' && info.selectionText) {
       magnetLink = info.selectionText.trim();
-    } else if (info.menuItemId === 'add-magnet-general') {
-      // For general page context, prompt user to enter magnet link
-      showNotification('warning', 'Right-click on magnet links or copy magnet link text and select it');
-      return;
+    } else if (info.menuItemId === 'add-magnet-clipboard') {
+      // Try to read from clipboard
+      try {
+        const clipboardText = await navigator.clipboard.readText();
+        if (clipboardText && REGEX.MAGNET_LINK.test(clipboardText.trim())) {
+          magnetLink = clipboardText.trim();
+        } else {
+          showNotification('warning', 'No valid magnet link found in clipboard');
+          return;
+        }
+      } catch (error) {
+        showNotification('error', 'Cannot access clipboard. Please copy a magnet link first.');
+        return;
+      }
     }
 
-    if (magnetLink && REGEX.MAGNET_LINK.test(magnetLink)) {
-      await handleMagnetLink(magnetLink, tab);
-    } else {
-      // Show error notification
-      showNotification('error', 'Invalid magnet link selected');
+    // Only proceed if we have a potential magnet link
+    if (magnetLink) {
+      if (REGEX.MAGNET_LINK.test(magnetLink)) {
+        await handleMagnetLink(magnetLink, tab);
+      } else {
+        // For non-magnet links, show helpful message
+        if (info.menuItemId === 'add-magnet-link') {
+          showNotification('warning', 'This is not a magnet link. Copy the magnet link and use "Add magnet from clipboard".');
+        } else {
+          showNotification('error', 'Selected text is not a valid magnet link');
+        }
+      }
     }
   });
 });
@@ -41,12 +58,11 @@ function createContextMenu() {
     // Remove existing menu items to avoid duplicates
     browser.contextMenus.removeAll(() => {
       try {
-        // Create context menu for links
+        // Create context menu for links (all links, we'll filter in the handler)
         browser.contextMenus.create({
           id: 'add-magnet-link',
           title: 'Add magnet link to Real-Debrid',
-          contexts: ['link'],
-          targetUrlPatterns: ['magnet:*']
+          contexts: ['link']
         });
 
         // Create context menu for selected text (in case magnet link is selected as text)
@@ -56,12 +72,13 @@ function createContextMenu() {
           contexts: ['selection']
         });
 
-        // Create a general context menu for all pages as fallback
+        // Create a page context menu that will check clipboard for magnet links
         browser.contextMenus.create({
-          id: 'add-magnet-general',
-          title: 'Add magnet link to Real-Debrid',
+          id: 'add-magnet-clipboard',
+          title: 'Add magnet from clipboard',
           contexts: ['page']
         });
+
 
         console.log('Context menus created successfully');
       } catch (error) {
