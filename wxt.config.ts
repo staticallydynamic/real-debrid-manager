@@ -16,7 +16,7 @@ export default defineConfig({
       }
     },
     version: '1.0.1',
-    permissions: ['storage', 'contextMenus', 'notifications'],
+    permissions: ['storage', 'contextMenus', 'notifications', 'clipboardRead'],
     host_permissions: [
       "https://api.real-debrid.com/*"
     ],
