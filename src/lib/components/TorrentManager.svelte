@@ -199,8 +199,8 @@
           <div class="level is-mobile">
             <div class="level-left">
               <div class="level-item">
-                <div>
-                  <p class="title is-6" style="width: 350px;">
+                <div class="torrent-info">
+                  <p class="title is-6 torrent-filename" title={torrent.filename}>
                     {torrent.filename}
                   </p>
                   <div class="torrent-meta">
@@ -396,6 +396,12 @@
   .level-left {
     flex: 1;
     min-width: 0;
+    max-width: calc(100% - 160px); /* Reserve space for buttons */
+  }
+
+  .level-right {
+    flex-shrink: 0;
+    min-width: 160px;
   }
 
   .level-item {
@@ -403,14 +409,28 @@
     min-width: 0;
   }
 
+  .torrent-info {
+    width: 100%;
+    min-width: 0;
+  }
+
   /* Torrent Title Styles */
   :global(.torrent-item .title.is-6) {
     color: #fff;
     margin-bottom: 0.5rem;
-    max-width: 450px;
+    max-width: 100%;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    cursor: help;
+  }
+
+  .torrent-filename {
+    transition: color 0.2s ease;
+  }
+
+  .torrent-filename:hover {
+    color: #2196f3;
   }
 
   /* Torrent Meta Styles */
