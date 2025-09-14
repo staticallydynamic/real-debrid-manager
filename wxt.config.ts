@@ -15,7 +15,7 @@ export default defineConfig({
         strict_min_version: "58.0"
       }
     },
-    version: '1.0.1',
+    version: '1.1.0',
     permissions: ['storage', 'contextMenus', 'notifications', 'clipboardRead'],
     host_permissions: [
       "https://api.real-debrid.com/*"

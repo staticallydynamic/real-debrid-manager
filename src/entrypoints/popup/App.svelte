@@ -130,6 +130,17 @@
       <!-- Render list of all torrents -->
       <TorrentManager apiKey={currentApiKey} />
     {/if}
+    
+    <!-- Footer with version and credits -->
+    <div class="footer">
+      <div class="version-info">
+        <span>v1.1.0</span> • 
+        <a href="https://github.com/staticallydynamic/real-debrid-manager/issues" target="_blank" title="Report issues or suggestions">
+          <i class="fas fa-bug"></i> Issues
+        </a> • 
+        <span>by <strong>supamerz</strong></span>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -154,6 +165,8 @@
     align-items: center;
     gap: 0.75rem;
     margin-bottom: 1.5rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid #333;
   }
 
   .header i,
@@ -283,5 +296,37 @@
     padding: 0.75rem;
     border-radius: 6px;
     margin-bottom: 1rem;
+  }
+
+  .footer {
+    background-color: #1a1a1a;
+    padding: 1rem;
+    border-top: 1px solid #333;
+    text-align: center;
+  }
+
+  .version-info {
+    font-size: 0.8rem;
+    color: #888;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+  }
+
+  .version-info a {
+    color: #2196f3;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .version-info a:hover {
+    text-decoration: underline;
+  }
+
+  .version-info strong {
+    color: #fff;
   }
 </style>

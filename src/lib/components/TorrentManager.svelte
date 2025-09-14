@@ -167,7 +167,7 @@
     <div class="column is-narrow">
       <div class="buttons are-small">
         <AddMagnet {apiKey} onMagnetAdded={fetchTorrents} />
-        <button class="button is-info" onclick={fetchTorrents} disabled={loading}>
+        <button class="button is-info is-small" onclick={fetchTorrents} disabled={loading}>
           <span class="icon">
             <i class="fas fa-sync-alt" class:fa-spin={loading}></i>
           </span>
@@ -352,7 +352,7 @@
   /* Base Container Styles */
   .torrent-manager {
     margin-top: 1.5rem;
-    padding: 1.25rem;
+    padding: 1rem;
     background-color: #1e1e1e;
     border-radius: 8px;
     border: 1px solid #333;
@@ -383,6 +383,9 @@
 
   .torrent-item:hover {
     border-color: #2196f3;
+    background-color: #323232;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(33, 150, 243, 0.1);
   }
 
   .torrent-item:last-child {
@@ -637,6 +640,31 @@
     100% {
       transform: rotate(360deg);
     }
+  }
+
+  /* Enhanced Button Interactions */
+  :global(.button) {
+    transition: all 0.2s ease;
+  }
+
+  :global(.button:hover:not(:disabled)) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  :global(.button:active:not(:disabled)) {
+    transform: translateY(0);
+  }
+
+  :global(.button.is-loading) {
+    pointer-events: none;
+  }
+
+  /* Status Badge Improvements */
+  .status-tag {
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
   }
 
   /* Responsive Styles */
