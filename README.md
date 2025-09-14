@@ -1,200 +1,188 @@
-# Real-Debrid Manager
+# 🧲 Real-Debrid Manager
 
-A powerful browser extension for managing your Real-Debrid downloads and torrents. This extension provides a clean, intuitive interface for interacting with the Real-Debrid API, making it easier to manage your downloads and torrents directly from your browser.
+A modern, powerful browser extension for seamlessly managing your Real-Debrid downloads and torrents. Built with Svelte 5 and featuring a clean, intuitive interface with advanced functionality for power users.
 
 ![Real-Debrid Manager Screenshot](screenshot.png)
 
-## Features
+> ✨ **Enhanced with toast notifications, context menu integration, and smart error handling**
 
-- **User Dashboard**: View your Real-Debrid account information including:
-  - Premium status and days remaining
-  - Points balance
-  - Account type
-  
-- **Torrent Management**:
-  - Add new magnet links
-  - View active torrents
-  - Select files from torrents for downloading
-  - Get unrestricted download links
-  - Delete unwanted torrents
-  
-- **Smart Caching**: Implements efficient caching system for API responses to reduce API calls and improve performance
-- **Secure API Key Management**: Safely store and manage your Real-Debrid API key
-- **Modern UI**: Clean, responsive interface built with Svelte and Bulma CSS framework
+## ✨ Features
 
-## Technology Stack
+### 🎛️ **Dashboard & Account Management**
+- **Real-time Account Info**: Premium status, points balance, and days remaining
+- **Secure API Key Storage**: Encrypted local storage with easy configuration
+- **Smart Caching**: Optimized API calls with intelligent caching system
 
-- **Frontend Framework**: Svelte
-- **Styling**: Bulma CSS & Custom CSS
-- **Icons**: Font Awesome
-- **Storage**: Chrome Storage API
-- **API Integration**: Real-Debrid REST API v1.0
+### 🧲 **Advanced Torrent Management**
+- **Universal Magnet Support**: Add magnets from any website using multiple methods
+- **Smart File Selection**: Choose specific files from torrents before downloading
+- **Status Tracking**: Monitor torrents with visual status indicators (Downloaded, Waiting, Error)
+- **Error Recovery**: Retry failed magnets with built-in error handling
+- **One-click Downloads**: Get unrestricted links copied to clipboard instantly
 
-## Getting Started
+### 🚀 **Enhanced User Experience**
+- **🍞 Toast Notifications**: Clean, non-intrusive success/error messages
+- **🖱️ Context Menu Integration**: Right-click to add magnets from any webpage
+- **📋 Clipboard Support**: Add magnets directly from clipboard
+- **⚡ Auto-refresh**: Automatic torrent list updates after adding magnets
+- **🎨 Modern UI**: Dark theme with responsive design built on Svelte 5
+
+### 🛠️ **Developer Features**
+- **TypeScript**: Full type safety and enhanced code quality
+- **Error Boundaries**: Comprehensive error handling with user-friendly messages
+- **Performance Optimized**: Efficient state management and minimal re-renders
+
+## 🛠️ How to Use Context Menu Integration
+
+The extension provides **three ways** to add magnet links from any website:
+
+### Method 1: Direct Link Right-click
+```
+Right-click on any magnet link → "Add magnet link to Real-Debrid"
+```
+
+### Method 2: Copy & Paste from Clipboard  
+```
+1. Copy magnet link (Ctrl+C)
+2. Right-click anywhere on page → "Add magnet from clipboard"
+```
+
+### Method 3: Select Text & Right-click
+```
+1. Highlight the magnet link text
+2. Right-click → "Add magnet link to Real-Debrid"  
+```
+
+> 💡 **Pro Tip**: If one method doesn't work due to website restrictions, try another method!
+
+## 💻 Technology Stack
+
+- **Frontend**: Svelte 5 with TypeScript
+- **Build Tool**: WXT Framework (modern WebExtension tooling)
+- **Styling**: Bulma CSS + Custom SCSS
+- **Icons**: Font Awesome 6
+- **Storage**: Browser Storage API with caching
+- **Notifications**: Custom toast system + browser notifications
+
+## 🚀 Quick Start
 
 ### Prerequisites
+- Node.js 18+ (Latest LTS recommended)
+- npm, yarn, or pnpm
+- Chrome/Chromium or Firefox browser
+- [Real-Debrid account](https://real-debrid.com) with API key
 
-- Node.js (Latest LTS version recommended)
-- npm or yarn
-- Chrome/Chromium-based browser or Firefox
-- Real-Debrid account and API key
+### 🎯 Browser Support
+| Browser | Version | Status |
+|---------|---------|--------|
+| **Chrome/Chromium** | 88+ | ✅ Full Support |
+| **Firefox** | 89+ | ✅ Full Support |
+| **Edge** | 88+ | ✅ Full Support |
 
-### Browser Support
+### 📦 Installation
 
-- **Chrome/Chromium**: Version 88 or later
-- **Firefox**: Version 89 or later
-
-Note: While the extension works in both Chrome and Firefox, some features might behave slightly differently due to browser-specific APIs.
-
-### Installation
-
-1. Clone the repository:
 ```bash
+# Clone the repository
 git clone https://github.com/staticallydynamic/real-debrid-manager.git
 cd real-debrid-manager
-```
 
-2. Install dependencies:
-```bash
+# Install dependencies
 npm install
+
+# Build the extension
+npm run build
 ```
 
-3. Build the extension:
-```bash
-# Build for both Chrome and Firefox
-npm run build:all
+The built extension will be in `.output/chrome-mv3/` directory.
 
-# Or build individually
-npm run build        # Chrome only
-npm run build:firefox  # Firefox only
-```
+### 🔧 Setup
 
-The build process creates browser-specific outputs in the `.output` directory:
-- `.output/chrome-mv3/` - Chrome/Chromium build (Manifest V3)
-- `.output/firefox-mv2/` - Firefox build (Manifest V2)
+1. **Get your API Key**: Visit [real-debrid.com/apitoken](https://real-debrid.com/apitoken)
+2. **Load the extension**:
+   - Chrome: Go to `chrome://extensions/` → Enable Developer mode → Load unpacked → Select `.output/chrome-mv3/`
+   - Firefox: Go to `about:debugging` → This Firefox → Load Temporary Add-on → Select `manifest.json`
+3. **Configure**: Click extension icon → Settings → Enter API key → Save
 
-Note: The dual build system accounts for the different manifest versions required by each browser:
-- Chrome requires Manifest V3
-- Firefox currently uses Manifest V2
-
-#### Loading in Chrome/Chromium browsers
-
-1. Open Chrome and navigate to `chrome://extensions/`
-2. Enable "Developer mode" in the top right corner
-3. Click "Load unpacked" in the top left corner
-4. Select the `.output/chrome-mv3` directory from your build
-
-#### Loading in Firefox
-
-1. Open Firefox and navigate to `about:debugging`
-2. Click "This Firefox" in the left sidebar
-3. Click "Load Temporary Add-on..."
-4. Navigate to your project's `.output/firefox-mv2` directory and select the `manifest.json` file
-
-Note: Firefox temporary add-ons will be removed when Firefox is closed. For permanent installation, you'll need to submit the extension to Firefox Add-ons.
-
-### Configuration
-
-1. Get your Real-Debrid API key from [real-debrid.com/apitoken](https://real-debrid.com/apitoken)
-2. Click the extension icon in your browser
-3. Click the Settings button
-4. Enter your API key and save
-
-## Development
-
-To start development server:
+## 👨‍💻 Development
 
 ```bash
+# Start development server with hot reload
 npm run dev
+
+# Run type checking
+npm run typecheck
+
+# Run linting
+npm run lint
+
+# Build for production
+npm run build
 ```
 
-### Browser-specific Development Notes
+### 🛠️ Development Tools
+- **Hot Reload**: Automatic extension reloading during development
+- **TypeScript**: Full type checking with `svelte-check`
+- **ESLint + Prettier**: Code formatting and linting
+- **WXT Framework**: Modern WebExtension development with Vite
 
-#### Chrome/Chromium
-- Changes to the extension require manually clicking the refresh button in `chrome://extensions/`
-- Background scripts can be debugged through the extension page in `chrome://extensions/`
-- Use Chrome DevTools' "Inspect popup" feature to debug the extension popup
-
-#### Firefox
-- Use `about:debugging#/runtime/this-firefox` to debug the extension
-- The "Inspect" button lets you debug popup and background scripts
-- Use Firefox Browser Toolbox for advanced debugging (Enable in Firefox Developer Tools settings)
-
-### Hot Reload During Development
-
-For convenience during development, you can use extensions that enable hot-reloading:
-- Chrome: "Extensions Reloader" or similar
-- Firefox: "Extension Auto-Reload" or similar
-
-### Project Structure
-
-The source code is organized as follows:
+## 🏗️ Architecture
 
 ```
-├── src/                      # Source code
-│   ├── lib/
-│   │   ├── components/      # Svelte components
-│   │   │   ├── AddMagnet.svelte
-│   │   │   ├── ApiKeyInput.svelte
-│   │   │   └── TorrentManager.svelte
-│   │   └── shared/         # Shared utilities and types
-│   │       ├── CacheManager.ts
-│   │       └── types.ts
-│   ├── App.svelte          # Main application component
-│   ├── app.css            # Global styles
-│   ├── index.html         # HTML template
-│   └── main.ts           # Application entry point
-├── .output/               # Build outputs
-│   ├── chrome-mv3/       # Chrome build (Manifest V3)
-│   │   ├── manifest.json
-│   │   └── ...
-│   └── firefox-mv2/      # Firefox build (Manifest V2)
-│       ├── manifest.json
-│       └── ...
+src/
+├── entrypoints/           # Extension entry points
+│   ├── background.ts      # Service worker (context menus, notifications)
+│   └── popup/            # Extension popup
+├── lib/
+│   ├── components/       # Svelte 5 components
+│   │   ├── AddMagnet.svelte
+│   │   ├── TorrentManager.svelte
+│   │   ├── Toast.svelte
+│   │   └── ToastContainer.svelte
+│   └── shared/          # Shared utilities
+│       ├── RealDebridAPI.ts    # API client
+│       ├── StorageManager.ts   # Storage abstraction
+│       ├── toastManager.ts     # Toast notifications
+│       ├── types.ts           # TypeScript definitions
+│       └── constants.ts       # App constants
 ```
 
-## Contributing
+## 🤝 Contributing
 
-We welcome contributions! Here's how you can help:
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-1. Fork the repository
-2. Create a new branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Commit your changes (`git commit -m 'Add some amazing feature'`)
-5. Push to the branch (`git push origin feature/amazing-feature`)
-6. Open a Pull Request
+### Development Guidelines
+- **TypeScript**: Use proper typing for all code
+- **Svelte 5**: Follow modern Svelte patterns with runes
+- **Error Handling**: Implement comprehensive error boundaries
+- **Testing**: Add tests for new functionality
+- **Documentation**: Update README for new features
 
-### Code Style Guidelines
+## 📚 Resources
 
-- Use TypeScript for type safety
-- Follow Svelte best practices
-- Use Bulma classes for layout and basic styling
-- Add custom styles within Svelte components using `<style>` tags
-- Implement proper error handling and loading states
+- **[Real-Debrid API Documentation](https://api.real-debrid.com/)** - Official API reference
+- **[WXT Framework](https://wxt.dev/)** - Modern WebExtension development
+- **[Svelte 5 Documentation](https://svelte.dev/)** - Frontend framework
 
-## API Documentation
-
-This project uses the Real-Debrid API v1.0. Full API documentation can be found in the [official Real-Debrid API documentation](https://api.real-debrid.com/).
-
-## License
+## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
-- Real-Debrid for providing the API
-- Svelte team for the excellent framework
-- Bulma team for the CSS framework
-- Font Awesome for the icons
+- **[Real-Debrid](https://real-debrid.com)** - Premium link generation service
+- **[Svelte Team](https://svelte.dev)** - Amazing reactive framework  
+- **[WXT](https://wxt.dev)** - Modern extension development toolkit
+- **[Bulma](https://bulma.io)** - Modern CSS framework
 
-## Support
+## 💬 Support
 
-If you encounter any issues or have questions, please:
-
-1. Check the [issues page](https://github.com/staticallydynamic/real-debrid-manager/issues)
-2. Open a new issue if your problem hasn't been reported
-3. Provide detailed information about your problem including steps to reproduce
+- 🐛 **Found a bug?** [Open an issue](https://github.com/staticallydynamic/real-debrid-manager/issues)
+- 💡 **Feature request?** [Create a discussion](https://github.com/staticallydynamic/real-debrid-manager/discussions)
+- 📧 **Questions?** Check existing issues first, then open a new one
 
 ---
 
-Made with ❤️ by supamerz
+<div align="center">
+  <strong>Made with ❤️ for the Real-Debrid community by supamerz</strong><br>
+  ⭐ Star this repo if you find it useful!
+</div>
