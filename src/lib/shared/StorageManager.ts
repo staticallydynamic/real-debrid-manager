@@ -1,3 +1,7 @@
+import { StorageError } from './errors';
+import { CACHE_KEYS } from './constants';
+import type { CacheItem } from './types';
+
 export class StorageManager {
     private static instance: StorageManager;
     private storage: any;
@@ -18,7 +22,7 @@ export class StorageManager {
                 } else {
                     throw new Error('chrome.storage exists but is not fully implemented');
                 }
-            } catch (e) {
+            } catch {
                 // If we get here, we need to use the browser API
                 if (typeof browser !== 'undefined') {
                     this.storage = browser.storage.local;
@@ -52,8 +56,8 @@ export class StorageManager {
         });
     }
 
-    public async set(key: string, value: any, ttlMinutes: number): Promise<void> {
-        const item = {
+    public async set<T>(key: string, value: T, ttlMinutes: number): Promise<void> {
+        const item: CacheItem<T> = {
             value,
             timestamp: Date.now(),
             ttl: ttlMinutes * 60 * 1000
@@ -63,18 +67,18 @@ export class StorageManager {
             await this.wrapStorageAPI(this.storage.set({ [key]: item }));
         } catch (error) {
             console.error('Storage set error:', error);
-            throw error;
+            throw new StorageError('Failed to save data to storage', error as Error);
         }
     }
 
     public async get<T>(key: string): Promise<T | null> {
         try {
             const result = await this.wrapStorageAPI(this.storage.get(key));
-            const item = result[key];
+            const item = (result as Record<string, unknown>)[key];
 
-            if (!item) return null;
+            if (!item) {return null;}
 
-            const { value, timestamp, ttl } = item;
+            const { value, timestamp, ttl } = item as CacheItem<T>;
             const now = Date.now();
 
             if (now - timestamp > ttl) {
@@ -85,7 +89,7 @@ export class StorageManager {
             return value as T;
         } catch (error) {
             console.error('Storage get error:', error);
-            throw error;
+            throw new StorageError('Failed to retrieve data from storage', error as Error);
         }
     }
 
@@ -94,7 +98,7 @@ export class StorageManager {
             await this.wrapStorageAPI(this.storage.remove(key));
         } catch (error) {
             console.error('Storage clear error:', error);
-            throw error;
+            throw new StorageError('Failed to clear data from storage', error as Error);
         }
     }
 
@@ -103,26 +107,26 @@ export class StorageManager {
             await this.wrapStorageAPI(this.storage.clear());
         } catch (error) {
             console.error('Storage clearAll error:', error);
-            throw error;
+            throw new StorageError('Failed to clear all data from storage', error as Error);
         }
     }
 
     public async getApiKey(): Promise<string> {
         try {
-            const result = await this.wrapStorageAPI(this.storage.get(['rdApiKey']));
-            return result.rdApiKey || '';
+            const result = await this.wrapStorageAPI(this.storage.get([CACHE_KEYS.API_KEY]));
+            return (result as Record<string, string>)[CACHE_KEYS.API_KEY] || '';
         } catch (error) {
             console.error('Get API key error:', error);
-            throw error;
+            throw new StorageError('Failed to retrieve API key from storage', error as Error);
         }
     }
 
     public async setApiKey(apiKey: string): Promise<void> {
         try {
-            await this.wrapStorageAPI(this.storage.set({ rdApiKey: apiKey }));
+            await this.wrapStorageAPI(this.storage.set({ [CACHE_KEYS.API_KEY]: apiKey }));
         } catch (error) {
             console.error('Set API key error:', error);
-            throw error;
+            throw new StorageError('Failed to save API key to storage', error as Error);
         }
     }
 }
