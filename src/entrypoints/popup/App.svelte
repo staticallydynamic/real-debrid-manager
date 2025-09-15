@@ -134,7 +134,7 @@
     <!-- Footer with version and credits -->
     <div class="footer">
       <div class="version-info">
-        <span>v1.1.0</span> • 
+        <span>v1.1.1</span> • 
         <a href="https://github.com/staticallydynamic/real-debrid-manager/issues" target="_blank" title="Report issues or suggestions">
           <i class="fas fa-bug"></i> Issues
         </a> • 
