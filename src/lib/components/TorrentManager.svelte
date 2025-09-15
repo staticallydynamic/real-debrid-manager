@@ -10,10 +10,15 @@
   let error = $state('');
   let showFileModal = $state(false);
   let showDeleteModal = $state(false);
+  let showLinksModal = $state(false);
   let selectedFiles = $state<number[]>([]);
   let currentTorrentFiles = $state<TorrentFile[]>([]);
   let currentTorrentId = $state('');
   let torrentToDelete = $state('');
+  let currentLinks = $state<string[]>([]);
+  let currentLinkNames = $state<string[]>([]);
+  let perLinkLoading = $state<{ [key: number]: boolean }>({});
+  let bulkLinksLoading = $state(false);
 
   // Link states
   const loadingLinks = $state<{ [key: string]: boolean }>({});
@@ -43,6 +48,109 @@
       console.error('Error getting unrestricted link:', err);
     } finally {
       loadingLinks[torrentId] = false;
+    }
+  }
+
+  async function openLinksModal(torrent: Torrent) {
+    const { id, links } = torrent;
+    if (!links || links.length === 0) { return; }
+
+    // If only one link, keep the current quick-copy flow
+    if (links.length === 1) {
+      return getUnrestrictedLink(links[0], id);
+    }
+
+    try {
+      loadingLinks[id] = true;
+      currentTorrentId = id;
+      currentLinks = links;
+
+      // Try to fetch file names to label links; fall back to generic names
+      let names: string[] = [];
+      try {
+        const api = new RealDebridAPI(apiKey);
+        const info = await api.getTorrentInfo(id);
+        const selectedFiles = (info.files || []).filter((f) => f.selected === 1);
+
+        if (selectedFiles.length === links.length) {
+          names = selectedFiles.map((f) => f.path.split('/').pop() || 'File');
+        }
+      } catch (e) {
+        // Non-fatal; we'll fall back to generic names
+      }
+
+      if (names.length !== links.length) {
+        names = links.map((_, i) => `File ${i + 1}`);
+      }
+
+      currentLinkNames = names;
+      perLinkLoading = {};
+      showLinksModal = true;
+      error = '';
+    } catch (err) {
+      const appError = err as AppError;
+      error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to prepare links');
+      console.error('Error preparing links:', err);
+    } finally {
+      loadingLinks[id] = false;
+    }
+  }
+
+  async function copySingleLink(index: number) {
+    const link = currentLinks[index];
+    if (!link) { return; }
+
+    try {
+      perLinkLoading[index] = true;
+      const api = new RealDebridAPI(apiKey);
+      const data = await api.getUnrestrictedLink(link);
+      await navigator.clipboard.writeText(data.download);
+      toastManager.success('Download link copied');
+      error = '';
+    } catch (err) {
+      const appError = err as AppError;
+      error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to copy link');
+      console.error('Error copying single link:', err);
+    } finally {
+      perLinkLoading[index] = false;
+    }
+  }
+
+  async function copyAllLinks() {
+    if (!currentLinks.length) { return; }
+
+    try {
+      bulkLinksLoading = true;
+      const api = new RealDebridAPI(apiKey);
+      const results = await Promise.all(
+        currentLinks.map(async (l) => {
+          try {
+            const data = await api.getUnrestrictedLink(l);
+            return data.download;
+          } catch (e) {
+            return null;
+          }
+        })
+      );
+
+      const downloads = results.filter((r): r is string => !!r);
+      if (downloads.length === 0) {
+        toastManager.error('Failed to unrestrict links');
+        return;
+      }
+
+      await navigator.clipboard.writeText(downloads.join('\n'));
+      toastManager.success(`Copied ${downloads.length} download link(s)`);
+      error = '';
+    } catch (err) {
+      const appError = err as AppError;
+      error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to copy links');
+      console.error('Error copying all links:', err);
+    } finally {
+      bulkLinksLoading = false;
     }
   }
 
@@ -241,8 +349,9 @@
               {:else if torrent.status === 'downloaded' && torrent.links?.length > 0}
                 <button
                   class="button is-info is-small mr-2"
-                  onclick={() => getUnrestrictedLink(torrent.links[0], torrent.id)}
+                  onclick={() => openLinksModal(torrent)}
                   disabled={loadingLinks[torrent.id]}
+                  aria-label={torrent.links.length === 1 ? 'Get link' : 'Get links'}
                 >
                   <span class="icon">
                     <i
@@ -252,7 +361,13 @@
                       class:fa-spin={loadingLinks[torrent.id]}
                     ></i>
                   </span>
-                  <span>{loadingLinks[torrent.id] ? 'Copying...' : 'Get Link'}</span>
+                  <span>
+                    {loadingLinks[torrent.id]
+                      ? 'Preparing...'
+                      : torrent.links.length === 1
+                      ? 'Get Link'
+                      : 'Get Links'}
+                  </span>
                 </button>
               {/if}
               <button
@@ -316,6 +431,48 @@
       <button class="button" onclick={() => (showFileModal = false)}>Cancel</button>
     </footer>
   </div>
+</div>
+
+<!-- Links Modal -->
+<div class="modal" class:is-active={showLinksModal}>
+  <div class="modal-background"></div>
+  <div class="modal-card links-modal">
+    <header class="modal-card-head">
+      <p class="modal-card-title">Download Links</p>
+      <button class="delete" aria-label="close" onclick={() => (showLinksModal = false)}></button>
+    </header>
+    <section class="modal-card-body">
+      <div class="links-actions">
+        <button class="button is-info" onclick={copyAllLinks} disabled={bulkLinksLoading}>
+          <span class="icon">
+            <i class="fas" class:fa-copy={!bulkLinksLoading} class:fa-spinner={bulkLinksLoading} class:fa-spin={bulkLinksLoading}></i>
+          </span>
+          <span>{bulkLinksLoading ? 'Copying...' : 'Copy All'}</span>
+        </button>
+      </div>
+      <div class="links-list">
+        {#each currentLinks as link, i}
+          <div class="link-item">
+            <div class="link-name" title={currentLinkNames[i] || `File ${i + 1}`}>
+              {currentLinkNames[i] || `File ${i + 1}`}
+            </div>
+            <div class="link-actions">
+              <button class="button is-small" onclick={() => copySingleLink(i)} disabled={!!perLinkLoading[i]}>
+                <span class="icon is-small">
+                  <i class="fas" class:fa-copy={!perLinkLoading[i]} class:fa-spinner={!!perLinkLoading[i]} class:fa-spin={!!perLinkLoading[i]}></i>
+                </span>
+                <span>{perLinkLoading[i] ? 'Copying...' : 'Copy'}</span>
+              </button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    </section>
+    <footer class="modal-card-foot">
+      <button class="button" onclick={() => (showLinksModal = false)}>Close</button>
+    </footer>
+  </div>
+  
 </div>
 
 <!-- Delete Confirmation Modal -->
@@ -496,6 +653,44 @@
     background-color: #1e1e1e;
     color: #fff;
     padding: 0;
+  }
+
+  /* Links modal */
+  .links-modal .modal-card-body {
+    padding: 0;
+  }
+
+  .links-actions {
+    padding: 1rem;
+    border-bottom: 1px solid #333;
+    background-color: #2a2a2a;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .links-list {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 0.5rem 0.75rem 1rem;
+  }
+
+  .link-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+    background-color: #2a2a2a;
+    border-radius: 6px;
+  }
+
+  .link-name {
+    color: #fff;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    font-size: 0.95rem;
   }
 
   /* Select all checkbox container */
