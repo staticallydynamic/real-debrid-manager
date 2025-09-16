@@ -15,7 +15,10 @@
     "lint:fix": "eslint src --ext .ts,.js,.svelte --fix",
     "format": "prettier --write src/**/*.{ts,js,svelte}",
     "format:check": "prettier --check src/**/*.{ts,js,svelte}",
-    "typecheck": "svelte-check"
+    "typecheck": "svelte-check",
+    "bump:patch": "npm version patch",
+    "bump:minor": "npm version minor",
+    "bump:major": "npm version major"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",

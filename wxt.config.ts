@@ -1,5 +1,8 @@
 import { defineConfig } from 'wxt';
 
+// Use package.json version as single source of truth
+const pkgVersion = process.env.npm_package_version ?? '0.0.0';
+
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   srcDir: 'src',
@@ -15,7 +18,7 @@ export default defineConfig({
         strict_min_version: "58.0"
       }
     },
-    version: '1.1.0',
+    version: pkgVersion,
     permissions: ['storage', 'contextMenus', 'notifications', 'clipboardRead'],
     host_permissions: [
       "https://api.real-debrid.com/*"
