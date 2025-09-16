@@ -125,6 +125,40 @@ npm run build
 - **ESLint + Prettier**: Code formatting and linting
 - **WXT Framework**: Modern WebExtension development with Vite
 
+## 🚀 Release & Versioning
+
+Versioning is single‑sourced from `package.json`. The extension manifest reads this value at build time, and the popup footer displays it dynamically.
+
+Recommended flow:
+
+1) Code
+- Develop and test: `npm run dev` (Chrome) or `npm run dev:firefox` (Firefox)
+
+2) Bump
+- Choose a semantic version bump and run one of:
+  - Patch: `npm run bump:patch`
+  - Minor: `npm run bump:minor`
+  - Major: `npm run bump:major`
+
+3) Build
+- Build both targets: `npm run build:all`
+
+4) Package
+- Create upload zips:
+  - Chrome: `npm run zip`
+  - Firefox: `npm run zip:firefox`
+
+5) Verify
+- Load the build locally and confirm the footer shows the new `vX.Y.Z`.
+
+6) Publish
+- Upload the generated zips to the Chrome Web Store and Firefox Add‑ons.
+
+Notes:
+- The manifest version comes from `package.json`; no manual edits required.
+- Both stores require strictly increasing versions.
+- `npm version` creates a git commit and tag by default; adjust flags if you prefer otherwise.
+
 ## 🏗️ Architecture
 
 ```

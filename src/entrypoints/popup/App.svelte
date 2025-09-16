@@ -16,6 +16,7 @@
   let userInfo = $state<User | null>(null);
   let error = $state('');
   let showApiKey = $state(false);
+  let appVersion = $state('');
 
   function toggleApiKey() {
     showApiKey = !showApiKey;
@@ -52,6 +53,13 @@
   onMount(async () => {
     currentApiKey = await storage.getApiKey();
     // .catch((err) => console.error("Error getting API from storage.", err));
+
+    // Read extension version from manifest (single source of truth)
+    try {
+      appVersion = chrome?.runtime?.getManifest?.().version ?? '';
+    } catch (_) {
+      appVersion = '';
+    }
   });
 
   $effect(() => {
@@ -134,7 +142,9 @@
     <!-- Footer with version and credits -->
     <div class="footer">
       <div class="version-info">
-        <span>v1.1.0</span> • 
+        {#if appVersion}
+          <span>v{appVersion}</span> •
+        {/if}
         <a href="https://github.com/staticallydynamic/real-debrid-manager/issues" target="_blank" title="Report issues or suggestions">
           <i class="fas fa-bug"></i> Issues
         </a> • 
