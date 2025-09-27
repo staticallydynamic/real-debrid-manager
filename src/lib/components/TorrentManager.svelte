@@ -820,9 +820,9 @@
       <p>
         {#if torrentsToDelete.length === 1}
           Are you sure you want to delete
-          <strong>{torrentsToDeleteNames[0] ?? 'this torrent'}</strong>? This action cannot be undone.
+          <span class="deleted-asset">{torrentsToDeleteNames[0] ?? 'this torrent'}</span>? This action cannot be undone.
         {:else}
-          Are you sure you want to delete {torrentsToDelete.length} torrents? This action cannot be undone.
+          Are you sure you want to delete <span class="deleted-asset">{torrentsToDelete.length}</span> torrents? This action cannot be undone.
         {/if}
       </p>
       {#if torrentsToDelete.length > 1}
@@ -1114,6 +1114,11 @@
     background-color: #1e1e1e;
     color: #fff;
     padding: 0;
+  }
+
+  .modal-card-body .deleted-asset {
+    font-weight: 600;
+    color: #ff3860;
   }
 
   /* Links modal */
