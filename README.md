@@ -9,28 +9,28 @@ A modern, powerful browser extension for seamlessly managing your Real-Debrid do
 ## ✨ Features
 
 ### 🎛️ **Dashboard & Account Management**
-- **Real-time Account Info**: Premium status, points balance, and days remaining
-- **Secure API Key Storage**: Encrypted local storage with easy configuration
-- **Smart Caching**: Optimized API calls with intelligent caching system
+- **Live Account Snapshot**: Premium status, points balance, and remaining premium days
+- **API Key Validation**: Keys are verified against Real-Debrid before being stored locally
+- **Smart Caching**: Account data is cached per-session and refreshed on demand
 
 ### 🧲 **Advanced Torrent Management**
-- **Universal Magnet Support**: Add magnets from any website using multiple methods
-- **Smart File Selection**: Choose specific files from torrents before downloading
-- **Status Tracking**: Monitor torrents with visual status indicators (Downloaded, Waiting, Error)
-- **Error Recovery**: Retry failed magnets with built-in error handling
-- **One-click Downloads**: Get unrestricted links copied to clipboard instantly
+- **Universal Magnet Support**: Send magnets from the popup, context menu, or clipboard
+- **Granular File Selection**: Pick the exact files to download with size totals and bulk toggles
+- **Bulk Actions**: Multi-select torrents for batched deletion with confirmation safeguards
+- **Link Utilities**: Copy or launch unrestricted links individually or in bulk
+- **Status Tracking**: Visual queue for downloading, processing, errors, and completed items
 
 ### 🚀 **Enhanced User Experience**
-- **🍞 Toast Notifications**: Clean, non-intrusive success/error messages
-- **🖱️ Context Menu Integration**: Right-click to add magnets from any webpage
-- **📋 Clipboard Support**: Add magnets directly from clipboard
-- **⚡ Auto-refresh**: Automatic torrent list updates after adding magnets
-- **🎨 Modern UI**: Dark theme with responsive design built on Svelte 5
+- **Persistent Toasts**: Success and error notifications stay visible—even over modals
+- **Guided Onboarding**: Empty-state messaging explains how to add an API key
+- **Context Menu Integration**: Right-click magnet links, selections, or use the clipboard helper
+- **Auto-refresh**: Torrent lists refresh as soon as magnets are added
+- **Modern UI**: Dark, responsive layout with animated highlights and keyboard-friendly controls
 
 ### 🛠️ **Developer Features**
-- **TypeScript**: Full type safety and enhanced code quality
-- **Error Boundaries**: Comprehensive error handling with user-friendly messages
-- **Performance Optimized**: Efficient state management and minimal re-renders
+- **TypeScript + Svelte 5 runes** for safe, expressive components
+- **WXT Tooling** with hot reload for Chrome and Firefox targets
+- **ESLint, Prettier, and svelte-check** wired into scripts for consistent quality
 
 ## 🛠️ How to Use Context Menu Integration
 
@@ -89,11 +89,19 @@ cd real-debrid-manager
 # Install dependencies
 npm install
 
-# Build the extension
+# Start a dev build (Chrome target by default)
+npm run dev
+
+# Or target Firefox during development
+npm run dev:firefox
+
+# Build the extension for release when you're ready
 npm run build
 ```
 
-The built extension will be in `.output/chrome-mv3/` directory.
+The dev server prints a URL where you can install the temporary extension during development.
+
+Production builds land in `.output/chrome-mv3/` (and `.output/firefox-mv2/` if you run `npm run build:firefox`).
 
 ### 🔧 Setup
 
