@@ -17,8 +17,10 @@
   let torrentsToDeleteNames = $state<string[]>([]);
   let currentLinks = $state<string[]>([]);
   let currentLinkNames = $state<string[]>([]);
-  let perLinkLoading = $state<{ [key: number]: boolean }>({});
-  let bulkLinksLoading = $state(false);
+  let perCopyLoading = $state<{ [key: number]: boolean }>({});
+  let perDownloadLoading = $state<{ [key: number]: boolean }>({});
+  let bulkCopyLoading = $state(false);
+  let bulkDownloadLoading = $state(false);
 
   // Link states
   const loadingLinks = $state<{ [key: string]: boolean }>({});
@@ -26,47 +28,132 @@
   let selectedTorrentIds = $state<string[]>([]);
   let torrentStats = $state<Record<string, { selected: number; total: number | null }>>({});
 
-  const selectableTorrentIds = $derived(() => torrents.map((t) => t.id));
+  const selectableTorrentIds = $derived(() => Array.from(new Set(torrents.map((t) => t.id))));
+  const totalSelectable = $derived(() => selectableTorrentIds.length);
+  const selectedIdSet = $derived(() => new Set(selectedTorrentIds));
   const allTorrentsSelected = $derived(
-    () => selectableTorrentIds.length > 0 && selectedTorrentIds.length === selectableTorrentIds.length
+    () => totalSelectable > 0 && torrents.every((t) => selectedIdSet.has(t.id))
   );
-  const hasSelection = $derived(() => selectedTorrentIds.length > 0);
+  const hasSelection = $derived(() => torrents.some((t) => selectedIdSet.has(t.id)));
   const partiallySelected = $derived(() => hasSelection && !allTorrentsSelected);
 
   const { apiKey } = $props<{
     apiKey: string;
   }>();
 
-  async function getUnrestrictedLink(link: string, torrentId: string) {
-    if (loadingLinks[torrentId]) {return;} //prevent double click
+  const VISIBLE_STATUSES = new Set<Torrent['status']>([
+    'downloaded',
+    'waiting_files_selection',
+    'magnet_conversion',
+    'magnet_error',
+    'downloading',
+    'compressing',
+    'uploading',
+    'queued',
+  ]);
+  const WAITING_STATUSES = new Set<Torrent['status']>(['waiting_files_selection', 'magnet_conversion', 'queued']);
+  const ACTIVE_STATUSES = new Set<Torrent['status']>(['downloading', 'compressing', 'uploading']);
+  const ERROR_STATUSES = new Set<Torrent['status']>(['magnet_error', 'error', 'dead']);
 
+  function getStatusLabel(status: Torrent['status']): string {
+    switch (status) {
+      case 'downloaded':
+        return 'Downloaded';
+      case 'waiting_files_selection':
+        return 'Waiting';
+      case 'magnet_conversion':
+        return 'Converting';
+      case 'magnet_error':
+        return 'Magnet Error';
+      case 'downloading':
+        return 'Downloading';
+      case 'compressing':
+        return 'Processing';
+      case 'uploading':
+        return 'Uploading';
+      case 'queued':
+        return 'Queued';
+      case 'error':
+        return 'Error';
+      case 'dead':
+        return 'Unavailable';
+      default:
+        return status.replace(/_/g, ' ');
+    }
+  }
+
+  function openUrlInBrowser(url: string) {
     try {
-      loadingLinks[torrentId] = true;
+      if (chrome?.downloads?.download) {
+        chrome.downloads.download({ url });
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to trigger chrome.downloads:', err);
+    }
 
+    if (chrome?.tabs?.create) {
+      chrome.tabs.create({ url });
+    } else {
+      window.open(url, '_blank', 'noopener');
+    }
+  }
+
+  async function copyDirectLink(link: string) {
+    try {
       const api = new RealDebridAPI(apiKey);
       const data = await api.getUnrestrictedLink(link);
-
-      // Copy to clipboard
       await navigator.clipboard.writeText(data.download);
-      toastManager.success('Download link copied to clipboard!');
+      toastManager.success('Download link copied to clipboard');
       error = '';
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
       toastManager.error(appError.userMessage || 'Failed to get download link');
-      console.error('Error getting unrestricted link:', err);
-    } finally {
-      loadingLinks[torrentId] = false;
+      console.error('Error copying unrestricted link:', err);
+      throw err;
     }
   }
 
-  async function openLinksModal(torrent: Torrent) {
-    const { id, links } = torrent;
-    if (!links || links.length === 0) { return; }
+  async function downloadDirectLink(link: string) {
+    try {
+      const api = new RealDebridAPI(apiKey);
+      const data = await api.getUnrestrictedLink(link);
+      openUrlInBrowser(data.download);
+      toastManager.success('Download started in browser');
+      error = '';
+    } catch (err) {
+      const appError = err as AppError;
+      error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to start download');
+      console.error('Error retrieving download link:', err);
+      throw err;
+    }
+  }
 
-    // If only one link, keep the current quick-copy flow
+  async function handleTorrentLinks(torrent: Torrent, mode: 'copy' | 'download') {
+    const { id, links } = torrent;
+    if (!links || links.length === 0) {
+      toastManager.error('No links available for this torrent yet');
+      return;
+    }
+
+    if (loadingLinks[id]) {return;}
+
     if (links.length === 1) {
-      return getUnrestrictedLink(links[0], id);
+      try {
+        loadingLinks[id] = true;
+        if (mode === 'copy') {
+          await copyDirectLink(links[0]);
+        } else {
+          await downloadDirectLink(links[0]);
+        }
+      } catch {
+        // handled in helper functions
+      } finally {
+        loadingLinks[id] = false;
+      }
+      return;
     }
 
     try {
@@ -74,7 +161,6 @@
       currentTorrentId = id;
       currentLinks = links;
 
-      // Try to fetch file names to label links; fall back to generic names
       let names: string[] = [];
       try {
         const api = new RealDebridAPI(apiKey);
@@ -84,7 +170,7 @@
         if (selectedFiles.length === links.length) {
           names = selectedFiles.map((f) => f.path.split('/').pop() || 'File');
         }
-      } catch (e) {
+      } catch {
         // Non-fatal; we'll fall back to generic names
       }
 
@@ -93,7 +179,8 @@
       }
 
       currentLinkNames = names;
-      perLinkLoading = {};
+      perCopyLoading = {};
+      perDownloadLoading = {};
       showLinksModal = true;
       error = '';
     } catch (err) {
@@ -111,19 +198,26 @@
     if (!link) { return; }
 
     try {
-      perLinkLoading[index] = true;
-      const api = new RealDebridAPI(apiKey);
-      const data = await api.getUnrestrictedLink(link);
-      await navigator.clipboard.writeText(data.download);
-      toastManager.success('Download link copied');
-      error = '';
-    } catch (err) {
-      const appError = err as AppError;
-      error = appError.userMessage || appError.message;
-      toastManager.error(appError.userMessage || 'Failed to copy link');
-      console.error('Error copying single link:', err);
+      perCopyLoading[index] = true;
+      await copyDirectLink(link);
+    } catch {
+      // handled in helper
     } finally {
-      perLinkLoading[index] = false;
+      perCopyLoading[index] = false;
+    }
+  }
+
+  async function downloadSingleLink(index: number) {
+    const link = currentLinks[index];
+    if (!link) { return; }
+
+    try {
+      perDownloadLoading[index] = true;
+      await downloadDirectLink(link);
+    } catch {
+      // handled in helper
+    } finally {
+      perDownloadLoading[index] = false;
     }
   }
 
@@ -131,14 +225,14 @@
     if (!currentLinks.length) { return; }
 
     try {
-      bulkLinksLoading = true;
+      bulkCopyLoading = true;
       const api = new RealDebridAPI(apiKey);
       const results = await Promise.all(
         currentLinks.map(async (l) => {
           try {
             const data = await api.getUnrestrictedLink(l);
             return data.download;
-          } catch (e) {
+          } catch {
             return null;
           }
         })
@@ -159,7 +253,43 @@
       toastManager.error(appError.userMessage || 'Failed to copy links');
       console.error('Error copying all links:', err);
     } finally {
-      bulkLinksLoading = false;
+      bulkCopyLoading = false;
+    }
+  }
+
+  async function downloadAllLinks() {
+    if (!currentLinks.length) { return; }
+
+    try {
+      bulkDownloadLoading = true;
+      const api = new RealDebridAPI(apiKey);
+      const results = await Promise.all(
+        currentLinks.map(async (l) => {
+          try {
+            const data = await api.getUnrestrictedLink(l);
+            return data.download;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      const downloads = results.filter((r): r is string => !!r);
+      if (downloads.length === 0) {
+        toastManager.error('Failed to prepare downloads');
+        return;
+      }
+
+      downloads.forEach((url) => openUrlInBrowser(url));
+      toastManager.success(`Started ${downloads.length} download${downloads.length === 1 ? '' : 's'}`);
+      error = '';
+    } catch (err) {
+      const appError = err as AppError;
+      error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to start downloads');
+      console.error('Error starting downloads:', err);
+    } finally {
+      bulkDownloadLoading = false;
     }
   }
 
@@ -194,17 +324,12 @@
       console.log('Raw torrent data from API:', data);
       console.log('Torrent statuses:', data.map(t => ({ id: t.id, filename: t.filename, status: t.status })));
 
-      const filteredTorrents = data.filter(
-        t =>
-          t.status === 'downloaded' ||
-          t.status === 'waiting_files_selection' ||
-          t.status === 'magnet_conversion' ||
-          t.status === 'magnet_error'
-      );
+      const filteredTorrents = data.filter((t) => VISIBLE_STATUSES.has(t.status));
       
       console.log('Filtered torrents:', filteredTorrents.map(t => ({ id: t.id, filename: t.filename, status: t.status })));
       torrents = filteredTorrents;
-      selectedTorrentIds = selectedTorrentIds.filter((id) => filteredTorrents.some((t) => t.id === id));
+      const validIds = new Set(filteredTorrents.map((t) => t.id));
+      selectedTorrentIds = selectedTorrentIds.filter((id) => validIds.has(id));
       await hydrateTorrentStats(filteredTorrents);
     } catch (err) {
       const appError = err as AppError;
@@ -294,16 +419,14 @@
     }
   }
 
-  function toggleTorrentSelection(torrentId: string) {
-    if (selectedTorrentIds.includes(torrentId)) {
-      selectedTorrentIds = selectedTorrentIds.filter((id) => id !== torrentId);
+  function setTorrentSelection(torrentId: string, isSelected: boolean) {
+    if (isSelected) {
+      if (!selectedTorrentIds.includes(torrentId)) {
+        selectedTorrentIds = [...selectedTorrentIds, torrentId];
+      }
     } else {
-      selectedTorrentIds = [...selectedTorrentIds, torrentId];
+      selectedTorrentIds = selectedTorrentIds.filter((id) => id !== torrentId);
     }
-  }
-
-  function selectAllTorrents() {
-    selectedTorrentIds = [...selectableTorrentIds];
   }
 
   function clearSelectedTorrents() {
@@ -390,16 +513,6 @@
       </button>
       <button
         class="toolbar-button button is-light is-small"
-        onclick={selectAllTorrents}
-        disabled={torrents.length === 0 || allTorrentsSelected}
-      >
-        <span class="icon">
-          <i class="fas fa-check-double"></i>
-        </span>
-        <span>Select All</span>
-      </button>
-      <button
-        class="toolbar-button button is-light is-small"
         onclick={clearSelectedTorrents}
         disabled={!hasSelection}
       >
@@ -454,15 +567,41 @@
             <input
               type="checkbox"
               checked={selectedTorrentIds.includes(torrent.id)}
-              onchange={() => toggleTorrentSelection(torrent.id)}
+              onchange={(event) =>
+                setTorrentSelection(torrent.id, (event.currentTarget as HTMLInputElement).checked)
+              }
               aria-label={`Select ${torrent.filename}`}
             />
           </div>
           <div class="torrent-body">
-            <div class="torrent-heading">
+            <div class="torrent-name-row">
               <p class="torrent-name" title={torrent.filename}>
                 {torrent.filename}
               </p>
+            </div>
+            <div class="torrent-status-row">
+              <div class="status-meta">
+                <span
+                  class="tag status-tag"
+                  class:is-waiting={WAITING_STATUSES.has(torrent.status)}
+                  class:is-downloaded={torrent.status === 'downloaded'}
+                  class:is-active={ACTIVE_STATUSES.has(torrent.status)}
+                  class:is-error={ERROR_STATUSES.has(torrent.status)}
+                >
+                  {getStatusLabel(torrent.status)}
+                </span>
+                <span class="size-tag">
+                  {(torrent.bytes / (1024 * 1024)).toFixed(1)} MB
+                </span>
+                <span class="file-count" title={`Files selected for download: ${getTorrentFileCountLabel(torrent)}`}>
+                  {getTorrentFileCountLabel(torrent)}
+                </span>
+                {#if typeof torrent.progress === 'number' && torrent.progress > 0 && torrent.progress < 100}
+                  <span class="progress-text">{Math.round(torrent.progress)}%</span>
+                {/if}
+              </div>
+            </div>
+            <div class="torrent-actions-row">
               <div class="torrent-actions">
                 {#if torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion' || torrent.status === 'magnet_error'}
                   <button
@@ -476,12 +615,34 @@
                     </span>
                     <span>{torrent.status === 'magnet_error' ? 'Retry Files' : 'Select Files'}</span>
                   </button>
-                {:else if torrent.status === 'downloaded' && torrent.links?.length > 0}
+                {:else if torrent.links?.length > 0}
+                  <button
+                    class="button is-primary is-small"
+                    onclick={() => handleTorrentLinks(torrent, 'download')}
+                    disabled={loadingLinks[torrent.id]}
+                    aria-label={torrent.links.length === 1 ? 'Download file' : 'Download files'}
+                  >
+                    <span class="icon">
+                      <i
+                        class="fas"
+                        class:fa-download={!loadingLinks[torrent.id]}
+                        class:fa-spinner={loadingLinks[torrent.id]}
+                        class:fa-spin={loadingLinks[torrent.id]}
+                      ></i>
+                    </span>
+                    <span>
+                      {loadingLinks[torrent.id]
+                        ? 'Preparing...'
+                        : torrent.links.length === 1
+                        ? 'Download'
+                        : 'Download'}
+                    </span>
+                  </button>
                   <button
                     class="button is-info is-small"
-                    onclick={() => openLinksModal(torrent)}
+                    onclick={() => handleTorrentLinks(torrent, 'copy')}
                     disabled={loadingLinks[torrent.id]}
-                    aria-label={torrent.links.length === 1 ? 'Get link' : 'Get links'}
+                    aria-label={torrent.links.length === 1 ? 'Copy link' : 'Copy links'}
                   >
                     <span class="icon">
                       <i
@@ -495,8 +656,8 @@
                       {loadingLinks[torrent.id]
                         ? 'Preparing...'
                         : torrent.links.length === 1
-                        ? 'Get Link'
-                        : 'Get Links'}
+                        ? 'Copy Link'
+                        : 'Copy Links'}
                     </span>
                   </button>
                 {/if}
@@ -514,28 +675,6 @@
                   </span>
                 </button>
               </div>
-            </div>
-            <div class="torrent-meta">
-              <span
-                class="tag status-tag"
-                class:is-waiting={torrent.status === 'waiting_files_selection' ||
-                  torrent.status === 'magnet_conversion'}
-                class:is-downloaded={torrent.status === 'downloaded'}
-                class:is-error={torrent.status === 'magnet_error'}
-              >
-                {torrent.status === 'waiting_files_selection' ||
-                torrent.status === 'magnet_conversion'
-                  ? 'Waiting'
-                  : torrent.status === 'magnet_error'
-                  ? 'Error'
-                  : 'Downloaded'}
-              </span>
-              <span class="size-tag">
-                {(torrent.bytes / (1024 * 1024)).toFixed(1)} MB
-              </span>
-              <span class="file-count" title={`Files selected for download: ${getTorrentFileCountLabel(torrent)}`}>
-                {getTorrentFileCountLabel(torrent)}
-              </span>
             </div>
           </div>
         </div>
@@ -597,11 +736,27 @@
     </header>
     <section class="modal-card-body">
       <div class="links-actions">
-        <button class="button is-info" onclick={copyAllLinks} disabled={bulkLinksLoading}>
+        <button class="button is-primary" onclick={downloadAllLinks} disabled={bulkDownloadLoading}>
           <span class="icon">
-            <i class="fas" class:fa-copy={!bulkLinksLoading} class:fa-spinner={bulkLinksLoading} class:fa-spin={bulkLinksLoading}></i>
+            <i
+              class="fas"
+              class:fa-download={!bulkDownloadLoading}
+              class:fa-spinner={bulkDownloadLoading}
+              class:fa-spin={bulkDownloadLoading}
+            ></i>
           </span>
-          <span>{bulkLinksLoading ? 'Copying...' : 'Copy All'}</span>
+          <span>{bulkDownloadLoading ? 'Starting...' : 'Download All'}</span>
+        </button>
+        <button class="button is-info" onclick={copyAllLinks} disabled={bulkCopyLoading}>
+          <span class="icon">
+            <i
+              class="fas"
+              class:fa-copy={!bulkCopyLoading}
+              class:fa-spinner={bulkCopyLoading}
+              class:fa-spin={bulkCopyLoading}
+            ></i>
+          </span>
+          <span>{bulkCopyLoading ? 'Copying...' : 'Copy All'}</span>
         </button>
       </div>
       <div class="links-list">
@@ -611,11 +766,27 @@
               {currentLinkNames[i] || `File ${i + 1}`}
             </div>
             <div class="link-actions">
-              <button class="button is-small" onclick={() => copySingleLink(i)} disabled={!!perLinkLoading[i]}>
+              <button class="button is-small is-primary" onclick={() => downloadSingleLink(i)} disabled={!!perDownloadLoading[i]}>
                 <span class="icon is-small">
-                  <i class="fas" class:fa-copy={!perLinkLoading[i]} class:fa-spinner={!!perLinkLoading[i]} class:fa-spin={!!perLinkLoading[i]}></i>
+                  <i
+                    class="fas"
+                    class:fa-download={!perDownloadLoading[i]}
+                    class:fa-spinner={!!perDownloadLoading[i]}
+                    class:fa-spin={!!perDownloadLoading[i]}
+                  ></i>
                 </span>
-                <span>{perLinkLoading[i] ? 'Copying...' : 'Copy'}</span>
+                <span>{perDownloadLoading[i] ? 'Starting...' : 'Download'}</span>
+              </button>
+              <button class="button is-small" onclick={() => copySingleLink(i)} disabled={!!perCopyLoading[i]}>
+                <span class="icon is-small">
+                  <i
+                    class="fas"
+                    class:fa-copy={!perCopyLoading[i]}
+                    class:fa-spinner={!!perCopyLoading[i]}
+                    class:fa-spin={!!perCopyLoading[i]}
+                  ></i>
+                </span>
+                <span>{perCopyLoading[i] ? 'Copying...' : 'Copy'}</span>
               </button>
             </div>
           </div>
@@ -750,6 +921,12 @@
     margin: 0;
   }
 
+  .toolbar-button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+
   :global(.button.is-info) {
     background-color: #2196f3;
   }
@@ -772,7 +949,7 @@
     background-color: #242424;
     border: 1px solid #333;
     border-radius: 8px;
-    align-items: center;
+    align-items: flex-start;
     transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
   }
 
@@ -788,7 +965,8 @@
 
   .torrent-checkbox {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
+    padding-top: 0.35rem;
   }
 
   .torrent-checkbox input {
@@ -800,16 +978,23 @@
   .torrent-body {
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
+    gap: 0.55rem;
     min-width: 0;
   }
 
-  .torrent-heading {
+  .torrent-name-row {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
+    align-items: center;
     min-width: 0;
+  }
+
+  .torrent-status-row {
+    display: flex;
+    align-items: center;
+  }
+
+  .torrent-actions-row {
+    width: 100%;
   }
 
   .torrent-name {
@@ -820,6 +1005,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: 1 1 auto;
   }
 
   .torrent-name:hover {
@@ -827,24 +1013,30 @@
   }
 
   .torrent-actions {
-    display: flex;
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, max-content));
     gap: 0.5rem;
-    flex-wrap: nowrap;
-    align-items: center;
+    justify-content: flex-start;
+    align-items: stretch;
   }
 
   .torrent-actions .button {
     min-height: 2.1rem;
     font-size: 0.85rem;
+    width: 100%;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.45rem;
   }
 
-  .torrent-meta {
+  .status-meta {
     display: flex;
-    align-items: center;
     gap: 0.75rem;
-    font-size: 0.85rem;
-    color: #9db3d4;
+    align-items: center;
     flex-wrap: wrap;
+    color: #9db3d4;
   }
 
   .status-tag {
@@ -860,6 +1052,11 @@
     color: #ffca28;
   }
 
+  .status-tag.is-active {
+    background-color: rgba(33, 150, 243, 0.18);
+    color: #64b5f6;
+  }
+
   .status-tag.is-downloaded {
     background-color: rgba(76, 175, 80, 0.2);
     color: #72d572;
@@ -871,6 +1068,7 @@
   }
 
   .size-tag {
+    color: #9db3d4;
     font-weight: 500;
   }
 
@@ -881,6 +1079,12 @@
     background-color: rgba(59, 130, 246, 0.15);
     border-radius: 999px;
     padding: 0.15rem 0.55rem;
+  }
+
+  .progress-text {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #64b5f6;
   }
 
   /* Modal Styles */
@@ -923,6 +1127,7 @@
     background-color: #2a2a2a;
     display: flex;
     justify-content: flex-end;
+    gap: 0.5rem;
   }
 
   .links-list {
@@ -948,6 +1153,11 @@
     text-overflow: ellipsis;
     overflow: hidden;
     font-size: 0.95rem;
+  }
+
+  .link-actions {
+    display: flex;
+    gap: 0.5rem;
   }
 
   /* Select all checkbox container */
