@@ -89,53 +89,64 @@
 
   <!-- Modal for Magnet form -->
   <div class="modal" class:is-active={showModal}>
-    <div class="modal-background"></div>
+    <div class="modal-background" onclick={toggleModal}></div>
     <div class="modal-content">
-      <div class="magnet-form mt-3" class:is-loading={loading}>
-        <div class="field">
-          <div class="control">
-            <textarea
-              class="textarea"
-              bind:value={magnetLink}
-              placeholder="Paste magnet link here..."
-              rows="2"
-            ></textarea>
+      <div class="magnet-card" class:is-loading={loading}>
+        <header class="magnet-card__header">
+          <div class="magnet-card__title">
+            <i class="fas fa-magnet"></i>
+            <span>Send a Magnet Link</span>
           </div>
-        </div>
+          <p class="magnet-card__subtitle">Paste your magnet, choose a host, and we'll drop it into Real-Debrid.</p>
+        </header>
 
-        <div class="field">
-          <div class="control">
-            <div class="select is-small is-fullwidth">
-              <select bind:value={selectedHost}>
-                {#each availableHosts as host}
-                  <option value={host}>{host}</option>
-                {/each}
-              </select>
+        <section class="magnet-card__body">
+          <label class="field-label" for="magnet-input">Magnet Link</label>
+          <div class="field">
+            <div class="control">
+              <textarea
+                id="magnet-input"
+                class="textarea"
+                bind:value={magnetLink}
+                placeholder="magnet:?xt=urn:btih:..."
+                rows="3"
+              ></textarea>
             </div>
           </div>
-        </div>
 
-        <div class="field">
-          <div class="control">
-            <button
-              class="button is-success is-small is-fullwidth"
-              onclick={addMagnet}
-              disabled={!magnetLink || !selectedHost || loading}
-            >
-              <span class="icon">
-                <i class="fas fa-upload"></i>
-              </span>
-              <span>Add Torrent</span>
-            </button>
+          <label class="field-label" for="host-select">Use Host</label>
+          <div class="field">
+            <div class="control">
+              <div class="select is-small is-fullwidth">
+                <select id="host-select" bind:value={selectedHost}>
+                  {#each availableHosts as host}
+                    <option value={host}>{host}</option>
+                  {/each}
+                </select>
+              </div>
+            </div>
           </div>
-        </div>
 
-        {#if error}
-          <div class="notification is-danger is-light">
-            {error}
-          </div>
-        {/if}
+          {#if error}
+            <div class="notification is-danger is-light">
+              {error}
+            </div>
+          {/if}
+        </section>
 
+        <footer class="magnet-card__footer">
+          <button class="button is-light" onclick={toggleModal} disabled={loading}>Cancel</button>
+          <button
+            class="button is-success"
+            onclick={addMagnet}
+            disabled={!magnetLink || !selectedHost || loading}
+          >
+            <span class="icon">
+              <i class="fas fa-upload"></i>
+            </span>
+            <span>{loading ? 'Submitting...' : 'Add Torrent'}</span>
+          </button>
+        </footer>
       </div>
     </div>
     <button onclick={toggleModal} class="modal-close is-large" aria-label="close"></button>
@@ -143,12 +154,70 @@
 </div>
 
 <style>
-  .magnet-form {
-    background: #2a2a2a;
-    padding: 1rem;
-    border-radius: 6px;
-    border: 1px solid #333;
-    margin-top: 1rem;
+  .modal-content {
+    max-width: 460px;
+    width: calc(100% - 2rem);
+    margin: 3rem auto;
+  }
+
+  .magnet-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.96), rgba(34, 34, 34, 0.96));
+    border-radius: 12px;
+    border: 1px solid rgba(120, 75, 160, 0.35);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem 1.65rem 1.35rem;
+  }
+
+  .magnet-card__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .magnet-card__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+  }
+
+  .magnet-card__title i {
+    color: #ff3cac;
+    text-shadow: 0 0 10px rgba(255, 60, 172, 0.6);
+  }
+
+  .magnet-card__subtitle {
+    margin: 0;
+    color: #9db3d4;
+    font-size: 0.85rem;
+  }
+
+  .magnet-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .field-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #90caf9;
+  }
+
+  .magnet-card__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
   }
 
   :global(.textarea) {
