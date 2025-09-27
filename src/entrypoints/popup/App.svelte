@@ -86,8 +86,15 @@
 <div class="container">
   <div class="app-card">
     <div class="header">
-      <i class="fas fa-cloud-download-alt"></i>
-      <h1>Real Debrid Manager</h1>
+      <div class="title-block">
+        <div class="title-main">
+          <i class="fas fa-cloud-download-alt"></i>
+          <h1>Real Debrid Manager</h1>
+        </div>
+        {#if appVersion}
+          <span class="version-chip">v{appVersion}</span>
+        {/if}
+      </div>
     </div>
 
     <div class="api-section" class:connected={userInfo}>
@@ -123,13 +130,13 @@
             <span class="badge">{userInfo.type}</span>
 
             <div class="points">
-              <span class="points-label">POINTS</span>
+              <span class="points-label"><i class="fas fa-star"></i> POINTS</span>
               <span class="points-value">{userInfo.points}</span>
             </div>
 
             {#if userInfo.type === 'premium'}
               <div class="premium-days">
-                <span class="days-label">PREMIUM DAYS</span>
+                <span class="days-label"><i class="fas fa-calendar-alt"></i> PREMIUM DAYS</span>
                 <span class="days-value">{Math.floor(userInfo.premium / 86400)}</span>
               </div>
             {/if}
@@ -155,9 +162,6 @@
     <!-- Footer with version and credits -->
     <div class="footer">
       <div class="version-info">
-        {#if appVersion}
-          <span>v{appVersion}</span> •
-        {/if}
         <a href="https://github.com/staticallydynamic/real-debrid-manager/issues" target="_blank" title="Report issues or suggestions">
           <i class="fas fa-bug"></i> Found an Issue? Let us know! 🤗
         </a> • 
@@ -186,25 +190,56 @@
   .header {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
     margin-bottom: 1.5rem;
     padding-bottom: 1rem;
     border-bottom: 1px solid #333;
   }
 
-  .header i,
-  h1 {
-    color: #2196f3;
+  .title-block {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
   }
 
-  .header i {
-    font-size: 1.8rem;
+  .title-main {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+  }
+
+  .title-main i {
+    font-size: 1.6rem;
+    color: #ff3cac;
+    text-shadow: 0 0 10px rgba(255, 60, 172, 0.5);
   }
 
   h1 {
-    font-size: 1.8rem;
-    font-weight: 600;
+    font-size: 1.4rem;
+    font-weight: 700;
     margin: 0;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    background: linear-gradient(135deg, #ff3cac 0%, #784ba0 45%, #2b86c5 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 10px rgba(120, 75, 160, 0.45);
+    line-height: 1.1;
+  }
+
+  .version-chip {
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #0ff;
+    background: linear-gradient(135deg, rgba(0, 255, 255, 0.25), rgba(120, 75, 160, 0.25));
+    border: 1px solid rgba(0, 255, 255, 0.35);
+    border-radius: 999px;
+    padding: 0.2rem 0.55rem;
+    box-shadow: 0 0 8px rgba(0, 255, 255, 0.3);
+    margin-left: auto;
+    white-space: nowrap;
   }
 
   .api-section {
@@ -280,6 +315,9 @@
   .days-label {
     font-size: 0.75rem;
     opacity: 0.9;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
   }
 
   .days-value {
@@ -297,6 +335,19 @@
   .points-label {
     font-size: 0.75rem;
     opacity: 0.9;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .points-label i {
+    font-size: 0.8rem;
+    color: #ffd166;
+  }
+
+  .days-label i {
+    font-size: 0.8rem;
+    color: #64ffda;
   }
 
   .points-value {
