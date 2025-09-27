@@ -77,15 +77,14 @@
       fetchAvailableHosts();
     }
   });
+
+  export function openModal() {
+    console.log('openModal called');
+    showModal = true;
+  }
 </script>
 
 <div class="magnet-section">
-  <button class="button is-info" onclick={() => (showModal = !showModal)}>
-    <span class="icon">
-      <i class="fas fa-magnet"></i>
-    </span>
-    <span>Send Magnet</span>
-  </button>
 
   <!-- Modal for Magnet form -->
   <div class="modal" class:is-active={showModal}>

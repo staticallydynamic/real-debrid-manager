@@ -41,9 +41,26 @@
   const hasSelection = $derived(torrents.some((t) => selectedIdSet.has(t.id)));
   const partiallySelected = $derived(hasSelection && !allTorrentsSelected);
 
-  const { apiKey } = $props<{
+  // File selection stats
+  const selectedFileCount = $derived(selectedFiles.length);
+  const totalFileCount = $derived(currentTorrentFiles.length);
+  const selectedFilesTotalSize = $derived(() => {
+    return currentTorrentFiles
+      .filter(file => selectedFiles.includes(file.id))
+      .reduce((total, file) => total + file.bytes, 0);
+  });
+
+  const { apiKey, openAddMagnet } = $props<{
     apiKey: string;
+    openAddMagnet?: () => void;
   }>();
+
+  function triggerAddMagnet() {
+    console.log('Send Magnet button clicked - calling openAddMagnet');
+    if (openAddMagnet) {
+      openAddMagnet();
+    }
+  }
 
   const VISIBLE_STATUSES = new Set<Torrent['status']>([
     'downloaded',
@@ -84,6 +101,14 @@
       default:
         return status.replace(/_/g, ' ');
     }
+  }
+
+  function formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
   }
 
   function openUrlInBrowser(url: string) {
@@ -569,49 +594,60 @@
       <p class="subtle">Downloaded items stay visible so you can grab links or clean them up.</p>
     </div>
     <div class="manager-toolbar">
-      <button class="toolbar-button button is-info is-small" onclick={fetchTorrents} disabled={loading}>
-        <span class="icon">
-          <i class="fas fa-sync-alt" class:fa-spin={loading}></i>
-        </span>
-        <span>Refresh</span>
-      </button>
-      <button
-        class="toolbar-button button is-light is-small"
-        onclick={selectAllTorrents}
-        disabled={totalTorrents === 0 || allTorrentsSelected}
-      >
-        <span class="icon">
-          <i class="fas fa-check-double"></i>
-        </span>
-        <span>Select All</span>
-      </button>
-      <button
-        class="toolbar-button button is-light is-small"
-        onclick={clearSelectedTorrents}
-        disabled={!hasSelection}
-      >
-        <span class="icon">
-          <i class="fas" class:fa-square={!hasSelection} class:fa-minus-square={partiallySelected} class:fa-check-square={allTorrentsSelected}></i>
-        </span>
-        <span>Clear Selection</span>
-      </button>
-      <button
-        class="toolbar-button button is-danger is-small"
-        disabled={!hasSelection}
-        onclick={() => {
-          torrentsToDelete = [...selectedTorrentIds];
-          torrentsToDeleteNames = selectedTorrentIds.map((id) => {
-            const match = torrents.find((t) => t.id === id);
-            return match ? match.filename : id;
-          });
-          showDeleteModal = true;
-        }}
-      >
-        <span class="icon">
-          <i class="fas fa-trash"></i>
-        </span>
-        <span>Delete Selected</span>
-      </button>
+      <div class="toolbar-row-primary">
+        <button class="toolbar-button add-magnet-btn" onclick={triggerAddMagnet}>
+          <span class="icon">
+            <i class="fas fa-magnet"></i>
+          </span>
+          <span>Send Magnet</span>
+        </button>
+        <button class="toolbar-button button is-info is-small" onclick={fetchTorrents} disabled={loading}>
+          <span class="icon">
+            <i class="fas fa-sync-alt" class:fa-spin={loading}></i>
+          </span>
+          <span>Refresh</span>
+        </button>
+      </div>
+
+      <div class="toolbar-row-secondary">
+        <button
+          class="toolbar-button button is-light is-small"
+          onclick={selectAllTorrents}
+          disabled={totalTorrents === 0 || allTorrentsSelected}
+        >
+          <span class="icon">
+            <i class="fas fa-check-double"></i>
+          </span>
+          <span>Select All</span>
+        </button>
+        <button
+          class="toolbar-button button is-light is-small"
+          onclick={clearSelectedTorrents}
+          disabled={!hasSelection}
+        >
+          <span class="icon">
+            <i class="fas" class:fa-square={!hasSelection} class:fa-minus-square={partiallySelected} class:fa-check-square={allTorrentsSelected}></i>
+          </span>
+          <span>Clear Selection</span>
+        </button>
+        <button
+          class="toolbar-button button is-danger is-small"
+          disabled={!hasSelection}
+          onclick={() => {
+            torrentsToDelete = [...selectedTorrentIds];
+            torrentsToDeleteNames = selectedTorrentIds.map((id) => {
+              const match = torrents.find((t) => t.id === id);
+              return match ? match.filename : id;
+            });
+            showDeleteModal = true;
+          }}
+        >
+          <span class="icon">
+            <i class="fas fa-trash"></i>
+          </span>
+          <span>Delete Selected</span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -774,233 +810,289 @@
 </div>
 <!-- File Selection Modal -->
 <div class="modal" class:is-active={showFileModal}>
-  <div class="modal-background"></div>
-  <div class="modal-card file-selection">
-    <header class="modal-card-head">
-      <p class="modal-card-title">Select Files</p>
-      <button class="delete" aria-label="close" onclick={() => (showFileModal = false)}></button>
-    </header>
-    <section class="modal-card-body">
-      <div class="field">
-        <label class="checkbox">
-          <input
-            type="checkbox"
-            checked={selectedFiles.length === currentTorrentFiles.length}
-            onclick={toggleAllFiles}
-          />
-          Select All Files
-        </label>
-      </div>
-      <div class="file-list">
-        {#each currentTorrentFiles as file (file.id)}
-          <div class="file-item">
-            <label class="checkbox">
-              <input
-                type="checkbox"
-                checked={selectedFiles.includes(file.id)}
-                onclick={() => toggleFile(file.id)}
-              />
-              <span class="filename">{file.path.split('/').pop()}</span>
-              <span class="filesize">{(file.bytes / (1024 * 1024)).toFixed(1)} MB</span>
-            </label>
+  <div class="modal-background" onclick={() => (showFileModal = false)}></div>
+  <div class="modal-content file-selection-content">
+    <div class="file-selection-card">
+      <header class="file-selection-card__header">
+        <div class="file-selection-card__title">
+          <i class="fas fa-file-import"></i>
+          <span>Select Files</span>
+        </div>
+        <p class="file-selection-card__subtitle">Choose which files to download from this torrent.</p>
+
+        <div class="file-selection-stats">
+          <div class="stat-item">
+            <span class="stat-label">Selected:</span>
+            <span class="stat-value">{selectedFileCount} of {totalFileCount} files</span>
           </div>
-        {/each}
-      </div>
-    </section>
-    <footer class="modal-card-foot">
-      <button class="button is-success" onclick={selectFiles} disabled={selectedFiles.length === 0}>
-        Download Selected
-      </button>
-      <button class="button" onclick={() => (showFileModal = false)}>Cancel</button>
-    </footer>
+          <div class="stat-item">
+            <span class="stat-label">Size:</span>
+            <span class="stat-value">{formatFileSize(selectedFilesTotalSize())}</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="file-selection-card__body">
+        <div class="select-all-section">
+          <label class="checkbox select-all-checkbox">
+            <input
+              type="checkbox"
+              checked={selectedFiles.length === currentTorrentFiles.length}
+              onclick={toggleAllFiles}
+            />
+            Select All Files
+          </label>
+        </div>
+
+        <div class="file-list-container">
+          {#each currentTorrentFiles as file (file.id)}
+            <div class="file-item">
+              <label class="checkbox file-checkbox">
+                <input
+                  type="checkbox"
+                  checked={selectedFiles.includes(file.id)}
+                  onclick={() => toggleFile(file.id)}
+                />
+                <span class="filename">{file.path.split('/').pop()}</span>
+                <span class="filesize">{(file.bytes / (1024 * 1024)).toFixed(1)} MB</span>
+              </label>
+            </div>
+          {/each}
+        </div>
+      </section>
+
+      <footer class="file-selection-card__footer">
+        <button class="button is-light" onclick={() => (showFileModal = false)}>Cancel</button>
+        <button class="button is-success" onclick={selectFiles} disabled={selectedFiles.length === 0}>
+          <span class="icon">
+            <i class="fas fa-download"></i>
+          </span>
+          <span>Download Selected</span>
+        </button>
+      </footer>
+    </div>
   </div>
+  <button onclick={() => (showFileModal = false)} class="modal-close is-large" aria-label="close"></button>
 </div>
 
 <!-- Links Modal -->
 <div class="modal" class:is-active={showLinksModal}>
-  <div class="modal-background"></div>
-  <div class="modal-card links-modal">
-    <header class="modal-card-head">
-      <p class="modal-card-title">Download Links</p>
-      <button class="delete" aria-label="close" onclick={() => (showLinksModal = false)}></button>
-    </header>
-    <section class="modal-card-body">
-      <div class="links-actions">
-        <button class="button is-primary" onclick={downloadAllLinks} disabled={bulkDownloadLoading}>
-          <span class="icon">
-            <i
-              class="fas"
-              class:fa-download={!bulkDownloadLoading}
-              class:fa-spinner={bulkDownloadLoading}
-              class:fa-spin={bulkDownloadLoading}
-            ></i>
-          </span>
-          <span>{bulkDownloadLoading ? 'Starting...' : 'Download All'}</span>
-        </button>
-        <button class="button is-info" onclick={copyAllLinks} disabled={bulkCopyLoading}>
-          <span class="icon">
-            <i
-              class="fas"
-              class:fa-copy={!bulkCopyLoading}
-              class:fa-spinner={bulkCopyLoading}
-              class:fa-spin={bulkCopyLoading}
-            ></i>
-          </span>
-          <span>{bulkCopyLoading ? 'Copying...' : 'Copy All'}</span>
-        </button>
-      </div>
-      <div class="links-list">
-        {#each currentLinks as link, i (`${link}-${i}`)}
-          <div class="link-item">
-            <div class="link-name" title={currentLinkNames[i] || `File ${i + 1}`}>
-              {currentLinkNames[i] || `File ${i + 1}`}
+  <div class="modal-background" onclick={() => (showLinksModal = false)}></div>
+  <div class="modal-content links-content">
+    <div class="links-card">
+      <header class="links-card__header">
+        <div class="links-card__title">
+          <i class="fas fa-link"></i>
+          <span>Download Links</span>
+        </div>
+        <p class="links-card__subtitle">Download or copy links for the selected torrent files.</p>
+      </header>
+
+      <section class="links-card__body">
+        <div class="links-actions-section">
+          <button class="button is-primary" onclick={downloadAllLinks} disabled={bulkDownloadLoading}>
+            <span class="icon">
+              <i
+                class="fas"
+                class:fa-download={!bulkDownloadLoading}
+                class:fa-spinner={bulkDownloadLoading}
+                class:fa-spin={bulkDownloadLoading}
+              ></i>
+            </span>
+            <span>{bulkDownloadLoading ? 'Starting...' : 'Download All'}</span>
+          </button>
+          <button class="button is-info" onclick={copyAllLinks} disabled={bulkCopyLoading}>
+            <span class="icon">
+              <i
+                class="fas"
+                class:fa-copy={!bulkCopyLoading}
+                class:fa-spinner={bulkCopyLoading}
+                class:fa-spin={bulkCopyLoading}
+              ></i>
+            </span>
+            <span>{bulkCopyLoading ? 'Copying...' : 'Copy All'}</span>
+          </button>
+        </div>
+
+        <div class="links-list-container">
+          {#each currentLinks as link, i (`${link}-${i}`)}
+            <div class="link-item">
+              <div class="link-name" title={currentLinkNames[i] || `File ${i + 1}`}>
+                {currentLinkNames[i] || `File ${i + 1}`}
+              </div>
+              <div class="link-actions">
+                <button class="button is-small is-primary" onclick={() => downloadSingleLink(i)} disabled={!!perDownloadLoading[i]}>
+                  <span class="icon is-small">
+                    <i
+                      class="fas"
+                      class:fa-download={!perDownloadLoading[i]}
+                      class:fa-spinner={!!perDownloadLoading[i]}
+                      class:fa-spin={!!perDownloadLoading[i]}
+                    ></i>
+                  </span>
+                  <span>{perDownloadLoading[i] ? 'Starting...' : 'Download'}</span>
+                </button>
+                <button class="button is-small" onclick={() => copySingleLink(i)} disabled={!!perCopyLoading[i]}>
+                  <span class="icon is-small">
+                    <i
+                      class="fas"
+                      class:fa-copy={!perCopyLoading[i]}
+                      class:fa-spinner={!!perCopyLoading[i]}
+                      class:fa-spin={!!perCopyLoading[i]}
+                    ></i>
+                  </span>
+                  <span>{perCopyLoading[i] ? 'Copying...' : 'Copy'}</span>
+                </button>
+              </div>
             </div>
-            <div class="link-actions">
-              <button class="button is-small is-primary" onclick={() => downloadSingleLink(i)} disabled={!!perDownloadLoading[i]}>
-                <span class="icon is-small">
-                  <i
-                    class="fas"
-                    class:fa-download={!perDownloadLoading[i]}
-                    class:fa-spinner={!!perDownloadLoading[i]}
-                    class:fa-spin={!!perDownloadLoading[i]}
-                  ></i>
-                </span>
-                <span>{perDownloadLoading[i] ? 'Starting...' : 'Download'}</span>
-              </button>
-              <button class="button is-small" onclick={() => copySingleLink(i)} disabled={!!perCopyLoading[i]}>
-                <span class="icon is-small">
-                  <i
-                    class="fas"
-                    class:fa-copy={!perCopyLoading[i]}
-                    class:fa-spinner={!!perCopyLoading[i]}
-                    class:fa-spin={!!perCopyLoading[i]}
-                  ></i>
-                </span>
-                <span>{perCopyLoading[i] ? 'Copying...' : 'Copy'}</span>
-              </button>
-            </div>
-          </div>
-        {/each}
-      </div>
-    </section>
-    <footer class="modal-card-foot">
-      <button class="button" onclick={() => (showLinksModal = false)}>Close</button>
-    </footer>
+          {/each}
+        </div>
+      </section>
+
+      <footer class="links-card__footer">
+        <button class="button is-light" onclick={() => (showLinksModal = false)}>Close</button>
+      </footer>
+    </div>
   </div>
-  
+  <button onclick={() => (showLinksModal = false)} class="modal-close is-large" aria-label="close"></button>
 </div>
 
 <!-- View Selected Files Modal -->
 <div class="modal" class:is-active={showViewFilesModal}>
-  <div class="modal-background"></div>
-  <div class="modal-card view-files-modal">
-    <header class="modal-card-head">
-      <p class="modal-card-title">Files for {viewFilesTitle}</p>
-      <button
-        class="delete"
-        aria-label="close"
-        onclick={() => {
-          showViewFilesModal = false;
-          viewFiles = [];
-          viewFilesTitle = '';
-          viewFilesNotice = '';
-        }}
-      ></button>
-    </header>
-    <section class="modal-card-body">
-      {#if viewFilesNotice}
-        <div class="notification is-info is-light view-files-notice">
-          {viewFilesNotice}
+  <div class="modal-background" onclick={() => {
+    showViewFilesModal = false;
+    viewFiles = [];
+    viewFilesTitle = '';
+    viewFilesNotice = '';
+  }}></div>
+  <div class="modal-content view-files-content">
+    <div class="view-files-card">
+      <header class="view-files-card__header">
+        <div class="view-files-card__title">
+          <i class="fas fa-list"></i>
+          <span>Files for {viewFilesTitle}</span>
         </div>
-      {/if}
-      {#if viewFiles.length === 0}
-        <div class="view-files-empty">No files to display.</div>
-      {:else}
-        <ul class="view-files-list">
-          {#each viewFiles as file (file.id)}
-            <li>
-              <span class="file-name" title={file.path}>{file.path.split('/').pop()}</span>
-              <span class="file-size">{(file.bytes / (1024 * 1024)).toFixed(1)} MB</span>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </section>
-    <footer class="modal-card-foot">
-      <button
-        class="button"
-        onclick={() => {
-          showViewFilesModal = false;
-          viewFiles = [];
-          viewFilesTitle = '';
-          viewFilesNotice = '';
-        }}
-      >
-        Close
-      </button>
-    </footer>
+        <p class="view-files-card__subtitle">Viewing files selected for download in this torrent.</p>
+      </header>
+
+      <section class="view-files-card__body">
+        {#if viewFilesNotice}
+          <div class="view-files-notice">
+            <i class="fas fa-info-circle"></i>
+            <span>{viewFilesNotice}</span>
+          </div>
+        {/if}
+
+        {#if viewFiles.length === 0}
+          <div class="view-files-empty">
+            <i class="fas fa-folder-open"></i>
+            <span>No files to display.</span>
+          </div>
+        {:else}
+          <div class="view-files-list-container">
+            {#each viewFiles as file (file.id)}
+              <div class="view-file-item">
+                <span class="view-file-name" title={file.path}>{file.path.split('/').pop()}</span>
+                <span class="view-file-size">{formatFileSize(file.bytes)}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </section>
+
+      <footer class="view-files-card__footer">
+        <button
+          class="button is-light"
+          onclick={() => {
+            showViewFilesModal = false;
+            viewFiles = [];
+            viewFilesTitle = '';
+            viewFilesNotice = '';
+          }}
+        >
+          Close
+        </button>
+      </footer>
+    </div>
   </div>
+  <button onclick={() => {
+    showViewFilesModal = false;
+    viewFiles = [];
+    viewFilesTitle = '';
+    viewFilesNotice = '';
+  }} class="modal-close is-large" aria-label="close"></button>
 </div>
 
 <!-- Delete Confirmation Modal -->
 <div class="modal" class:is-active={showDeleteModal}>
-  <div class="modal-background"></div>
-  <div class="modal-card delete-confirmation">
-    <header class="modal-card-head">
-      <p class="modal-card-title">Confirm Delete</p>
-      <button
-        class="delete"
-        aria-label="close"
-        onclick={() => {
-          showDeleteModal = false;
-          torrentsToDelete = [];
-          torrentsToDeleteNames = [];
-        }}
-      ></button>
-    </header>
-    <section class="modal-card-body">
-      <p>
-        {#if torrentsToDelete.length === 1}
-          Are you sure you want to delete
-          <span class="deleted-asset">{torrentsToDeleteNames[0] ?? 'this torrent'}</span>? This action cannot be undone.
-        {:else}
-          Are you sure you want to delete <span class="deleted-asset">{torrentsToDelete.length}</span> torrents? This action cannot be undone.
+  <div class="modal-background" onclick={() => {
+    showDeleteModal = false;
+    torrentsToDelete = [];
+    torrentsToDeleteNames = [];
+  }}></div>
+  <div class="modal-content delete-confirmation-content">
+    <div class="delete-confirmation-card">
+      <header class="delete-confirmation-card__header">
+        <div class="delete-confirmation-card__title">
+          <i class="fas fa-exclamation-triangle"></i>
+          <span>Confirm Delete</span>
+        </div>
+        <p class="delete-confirmation-card__subtitle">This action cannot be undone.</p>
+      </header>
+
+      <section class="delete-confirmation-card__body">
+        <div class="delete-confirmation-message">
+          {#if torrentsToDelete.length === 1}
+            Are you sure you want to delete <span class="deleted-asset">{torrentsToDeleteNames[0] ?? 'this torrent'}</span>?
+          {:else}
+            Are you sure you want to delete <span class="deleted-asset">{torrentsToDelete.length} torrents</span>?
+          {/if}
+        </div>
+
+        {#if torrentsToDelete.length > 1}
+          <div class="delete-list-container">
+            {#each torrentsToDeleteNames as name, i (`${name}-${i}`)}
+              <div class="delete-list-item">{name}</div>
+            {/each}
+          </div>
         {/if}
-      </p>
-      {#if torrentsToDelete.length > 1}
-        <ul class="delete-list">
-          {#each torrentsToDeleteNames as name, i (`${name}-${i}`)}
-            <li>{name}</li>
-          {/each}
-        </ul>
-      {/if}
-    </section>
-    <footer class="modal-card-foot">
-      <button
-        class="button is-danger"
-        class:is-loading={deletingTorrent}
-        disabled={deletingTorrent}
-        onclick={async () => {
-          await deleteTorrents(torrentsToDelete);
-          showDeleteModal = false;
-          torrentsToDelete = [];
-          torrentsToDeleteNames = [];
-        }}
-      >
-        Delete
-      </button>
-      <button
-        class="button"
-        onclick={() => {
-          showDeleteModal = false;
-          torrentsToDelete = [];
-          torrentsToDeleteNames = [];
-        }}
-      >
-        Cancel
-      </button>
-    </footer>
+      </section>
+
+      <footer class="delete-confirmation-card__footer">
+        <button
+          class="button is-light"
+          onclick={() => {
+            showDeleteModal = false;
+            torrentsToDelete = [];
+            torrentsToDeleteNames = [];
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          class="button is-danger"
+          class:is-loading={deletingTorrent}
+          disabled={deletingTorrent}
+          onclick={async () => {
+            await deleteTorrents(torrentsToDelete);
+            showDeleteModal = false;
+            torrentsToDelete = [];
+            torrentsToDeleteNames = [];
+          }}
+        >
+          <span class="icon">
+            <i class="fas fa-trash"></i>
+          </span>
+          <span>{deletingTorrent ? 'Deleting...' : 'Delete'}</span>
+        </button>
+      </footer>
+    </div>
   </div>
+  <button onclick={() => {
+    showDeleteModal = false;
+    torrentsToDelete = [];
+    torrentsToDeleteNames = [];
+  }} class="modal-close is-large" aria-label="close"></button>
 </div>
 
 
@@ -1042,31 +1134,113 @@
 
   .manager-toolbar {
     display: flex;
-    gap: 0.5rem;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+    flex-direction: column;
+    gap: 1rem;
     flex: 0 1 100%;
+    padding: 1rem;
+    background: linear-gradient(135deg, rgba(30, 30, 30, 0.9), rgba(40, 40, 40, 0.9));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    backdrop-filter: blur(20px);
+  }
+
+  .toolbar-row-primary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    justify-content: center;
+  }
+
+  .toolbar-row-secondary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .add-magnet-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  }
+
+  .add-magnet-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
   }
 
   .toolbar-button {
     display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
-    font-size: 0.85rem;
-    padding: 0.35rem 0.85rem;
-    border-radius: 999px;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    padding: 0 1.25rem;
+    height: 2.5rem;
+    border-radius: 8px;
     white-space: nowrap;
     flex: 0 0 auto;
+    border: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+  }
+
+  .toolbar-button.is-info {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4);
+  }
+
+  .toolbar-button.is-info:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(79, 172, 254, 0.6);
+  }
+
+  .toolbar-button.is-light {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+    color: #e2e8f0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  }
+
+  .toolbar-button.is-light:hover {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.1));
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.3);
+  }
+
+  .toolbar-button.is-danger {
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+  }
+
+  .toolbar-button.is-danger:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(255, 107, 107, 0.6);
+  }
+
+  .toolbar-button:active {
+    transform: translateY(0);
+  }
+
+  .toolbar-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+    transform: none !important;
+    box-shadow: none !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: rgba(255, 255, 255, 0.3) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
   }
 
   .toolbar-button .icon {
     margin: 0;
-  }
-
-  .toolbar-button:disabled {
-    opacity: 0.45;
-    cursor: not-allowed;
-    pointer-events: none;
   }
 
   :global(.button.is-info) {
@@ -1258,57 +1432,6 @@
     display: inline-flex;
   }
 
-  .view-files-modal .modal-card-body {
-    padding: 1.25rem;
-    background-color: #1e1e1e;
-  }
-
-  .view-files-notice {
-    margin-bottom: 0.75rem;
-  }
-
-  .view-files-empty {
-    color: #9db3d4;
-    text-align: center;
-    padding: 1rem 0;
-  }
-
-  .view-files-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    max-height: 60vh;
-    overflow-y: auto;
-  }
-
-  .view-files-list li {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    background-color: #242424;
-    border: 1px solid #333;
-    border-radius: 6px;
-    padding: 0.65rem 0.85rem;
-  }
-
-  .view-files-list .file-name {
-    color: #fff;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 30rem;
-    flex: 1 1 auto;
-    border: none;
-  }
-
-  .view-files-list .file-size {
-    color: #90caf9;
-    font-weight: 600;
-    white-space: nowrap;
-  }
 
   /* Modal Styles */
   .modal-card {
@@ -1344,25 +1467,6 @@
     color: #ff3860;
   }
 
-  /* Links modal */
-  .links-modal .modal-card-body {
-    padding: 0;
-  }
-
-  .links-actions {
-    padding: 1rem;
-    border-bottom: 1px solid #333;
-    background-color: #2a2a2a;
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.5rem;
-  }
-
-  .links-list {
-    max-height: 60vh;
-    overflow-y: auto;
-    padding: 0.5rem 0.75rem 1rem;
-  }
 
   .link-item {
     display: grid;
@@ -1388,35 +1492,126 @@
     gap: 0.5rem;
   }
 
-  /* Select all checkbox container */
-  .field {
-    padding: 1rem;
-    border-bottom: 1px solid #333;
-    background-color: #2a2a2a;
+  /* File Selection Modal Styles */
+  .file-selection-content {
+    max-width: 600px;
+    width: calc(100% - 2rem);
+    margin: 3rem auto;
   }
 
-  .field .checkbox {
+  .file-selection-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.96), rgba(34, 34, 34, 0.96));
+    border-radius: 12px;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem 1.65rem 1.35rem;
+    max-height: calc(100vh - 6rem);
+  }
+
+  .file-selection-card__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+
+  .file-selection-card__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+  }
+
+  .file-selection-card__title i {
+    color: #3b82f6;
+    text-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
+  }
+
+  .file-selection-card__subtitle {
+    margin: 0;
+    color: #9db3d4;
+    font-size: 0.85rem;
+  }
+
+  .file-selection-stats {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    background-color: rgba(30, 30, 30, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #90caf9;
+    font-weight: 600;
+  }
+
+  .stat-value {
+    font-size: 0.9rem;
+    color: #fff;
+    font-weight: 500;
+  }
+
+  .file-selection-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .select-all-section {
+    flex-shrink: 0;
+    padding: 0.75rem 1rem;
+    background-color: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 8px;
+  }
+
+  .select-all-checkbox {
     color: #fff;
     font-weight: 500;
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    margin: 0;
   }
 
-  /* File list container */
-  .file-list {
-    max-height: 60vh;
+  .file-list-container {
+    flex: 1;
     overflow-y: auto;
-    padding: 0.5rem;
+    min-height: 0;
+    max-height: 50vh;
+    padding: 0.25rem;
   }
 
-  /* File item styles */
   .file-item {
     padding: 0.75rem 1rem;
-    border-radius: 6px;
+    border-radius: 8px;
     margin-bottom: 0.5rem;
-    background-color: #2a2a2a;
-    transition: background-color 0.2s ease;
+    background-color: rgba(42, 42, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.2s ease;
   }
 
   .file-item:last-child {
@@ -1424,10 +1619,11 @@
   }
 
   .file-item:hover {
-    background-color: #333;
+    background-color: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.3);
   }
 
-  .file-item label {
+  .file-checkbox {
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
@@ -1435,6 +1631,16 @@
     color: #fff;
     width: 100%;
     cursor: pointer;
+    margin: 0;
+  }
+
+  .file-selection-card__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .filename {
@@ -1464,22 +1670,405 @@
     gap: 0.75rem;
   }
 
-  /* Custom scrollbar */
-  .file-list::-webkit-scrollbar {
+  /* Custom scrollbar for file list */
+  .file-list-container::-webkit-scrollbar {
     width: 8px;
   }
 
-  .file-list::-webkit-scrollbar-track {
-    background: #1e1e1e;
-  }
-
-  .file-list::-webkit-scrollbar-thumb {
-    background: #333;
+  .file-list-container::-webkit-scrollbar-track {
+    background: rgba(30, 30, 30, 0.5);
     border-radius: 4px;
   }
 
-  .file-list::-webkit-scrollbar-thumb:hover {
-    background: #444;
+  .file-list-container::-webkit-scrollbar-thumb {
+    background: rgba(59, 130, 246, 0.6);
+    border-radius: 4px;
+  }
+
+  .file-list-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(59, 130, 246, 0.8);
+  }
+
+  /* Links Modal Styles */
+  .links-content {
+    max-width: 600px;
+    width: calc(100% - 2rem);
+    margin: 3rem auto;
+  }
+
+  .links-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.96), rgba(34, 34, 34, 0.96));
+    border-radius: 12px;
+    border: 1px solid rgba(33, 150, 243, 0.35);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem 1.65rem 1.35rem;
+    max-height: calc(100vh - 6rem);
+  }
+
+  .links-card__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+
+  .links-card__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+  }
+
+  .links-card__title i {
+    color: #2196f3;
+    text-shadow: 0 0 10px rgba(33, 150, 243, 0.6);
+  }
+
+  .links-card__subtitle {
+    margin: 0;
+    color: #9db3d4;
+    font-size: 0.85rem;
+  }
+
+  .links-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .links-actions-section {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    padding: 0.75rem 1rem;
+    background-color: rgba(33, 150, 243, 0.1);
+    border: 1px solid rgba(33, 150, 243, 0.2);
+    border-radius: 8px;
+  }
+
+  .links-list-container {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    max-height: 50vh;
+    padding: 0.25rem;
+  }
+
+  .links-card__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .links-list-container::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .links-list-container::-webkit-scrollbar-track {
+    background: rgba(30, 30, 30, 0.5);
+    border-radius: 4px;
+  }
+
+  .links-list-container::-webkit-scrollbar-thumb {
+    background: rgba(33, 150, 243, 0.6);
+    border-radius: 4px;
+  }
+
+  .links-list-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(33, 150, 243, 0.8);
+  }
+
+  /* View Files Modal Styles */
+  .view-files-content {
+    max-width: 600px;
+    width: calc(100% - 2rem);
+    margin: 3rem auto;
+  }
+
+  .view-files-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.96), rgba(34, 34, 34, 0.96));
+    border-radius: 12px;
+    border: 1px solid rgba(139, 69, 19, 0.35);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem 1.65rem 1.35rem;
+    max-height: calc(100vh - 6rem);
+  }
+
+  .view-files-card__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+
+  .view-files-card__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+  }
+
+  .view-files-card__title i {
+    color: #cd853f;
+    text-shadow: 0 0 10px rgba(205, 133, 63, 0.6);
+  }
+
+  .view-files-card__subtitle {
+    margin: 0;
+    color: #9db3d4;
+    font-size: 0.85rem;
+  }
+
+  .view-files-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .view-files-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background-color: rgba(33, 150, 243, 0.1);
+    border: 1px solid rgba(33, 150, 243, 0.2);
+    border-radius: 8px;
+    color: #90caf9;
+    font-size: 0.85rem;
+  }
+
+  .view-files-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 2rem;
+    color: #9db3d4;
+    text-align: center;
+  }
+
+  .view-files-empty i {
+    font-size: 2rem;
+    color: #cd853f;
+    opacity: 0.5;
+  }
+
+  .view-files-list-container {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    max-height: 50vh;
+    padding: 0.25rem;
+  }
+
+  .view-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+    background-color: rgba(42, 42, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    transition: all 0.2s ease;
+  }
+
+  .view-file-item:last-child {
+    margin-bottom: 0;
+  }
+
+  .view-file-item:hover {
+    background-color: rgba(205, 133, 63, 0.1);
+    border-color: rgba(205, 133, 63, 0.3);
+  }
+
+  .view-file-name {
+    color: #fff;
+    font-size: 0.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .view-file-size {
+    color: #cd853f;
+    font-weight: 600;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .view-files-card__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .view-files-list-container::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .view-files-list-container::-webkit-scrollbar-track {
+    background: rgba(30, 30, 30, 0.5);
+    border-radius: 4px;
+  }
+
+  .view-files-list-container::-webkit-scrollbar-thumb {
+    background: rgba(205, 133, 63, 0.6);
+    border-radius: 4px;
+  }
+
+  .view-files-list-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(205, 133, 63, 0.8);
+  }
+
+  /* Delete Confirmation Modal Styles */
+  .delete-confirmation-content {
+    max-width: 500px;
+    width: calc(100% - 2rem);
+    margin: 3rem auto;
+  }
+
+  .delete-confirmation-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.96), rgba(34, 34, 34, 0.96));
+    border-radius: 12px;
+    border: 1px solid rgba(220, 53, 69, 0.35);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem 1.65rem 1.35rem;
+  }
+
+  .delete-confirmation-card__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+    text-align: center;
+  }
+
+  .delete-confirmation-card__title {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+  }
+
+  .delete-confirmation-card__title i {
+    color: #dc3545;
+    text-shadow: 0 0 10px rgba(220, 53, 69, 0.6);
+  }
+
+  .delete-confirmation-card__subtitle {
+    margin: 0;
+    color: #dc3545;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .delete-confirmation-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    text-align: center;
+  }
+
+  .delete-confirmation-message {
+    color: #fff;
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  .deleted-asset {
+    font-weight: 600;
+    color: #dc3545;
+  }
+
+  .delete-list-container {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0.75rem 1rem;
+    background-color: rgba(30, 30, 30, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    text-align: left;
+  }
+
+  .delete-list-item {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: #ddd;
+    font-size: 0.9rem;
+  }
+
+  .delete-list-item:last-child {
+    border-bottom: none;
+  }
+
+  .delete-confirmation-card__footer {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .delete-list-container::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .delete-list-container::-webkit-scrollbar-track {
+    background: rgba(30, 30, 30, 0.5);
+    border-radius: 4px;
+  }
+
+  .delete-list-container::-webkit-scrollbar-thumb {
+    background: rgba(220, 53, 69, 0.6);
+    border-radius: 4px;
+  }
+
+  .delete-list-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(220, 53, 69, 0.8);
   }
 
   /* Checkbox styling */
@@ -1506,30 +2095,6 @@
     padding: 0.5rem 1rem;
   }
 
-  /* Delete confirmation modal */
-  .delete-confirmation .modal-card-body {
-    padding: 1.5rem;
-    text-align: center;
-  }
-
-  .delete-list {
-    margin-top: 1rem;
-    padding-left: 1.25rem;
-    text-align: left;
-    color: #ddd;
-    font-size: 0.9rem;
-    max-height: 160px;
-    overflow-y: auto;
-  }
-
-  .delete-list li + li {
-    margin-top: 0.35rem;
-  }
-
-  .delete-confirmation .modal-card-foot {
-    justify-content: center;
-    padding: 1rem;
-  }
 
 
   :global(.notification.is-info.is-light) {
@@ -1593,12 +2158,74 @@
 
   /* Responsive Styles */
   @media screen and (max-width: 600px) {
-    .modal-card {
-      margin: 0 0.5rem;
+
+    .file-selection-content,
+    .links-content,
+    .view-files-content {
+      margin: 1rem auto;
+      width: calc(100% - 1rem);
     }
 
-    .modal:has(.delete-confirmation) .modal-card {
-      width: calc(100% - 2rem);
+    .file-selection-card,
+    .links-card,
+    .view-files-card {
+      max-height: calc(100vh - 2rem);
+      padding: 1rem 1.25rem 1rem;
+    }
+
+    .delete-confirmation-content {
+      margin: 1rem auto;
+      width: calc(100% - 1rem);
+    }
+
+    .delete-confirmation-card {
+      max-height: calc(100vh - 2rem);
+      padding: 1rem 1.25rem 1rem;
+    }
+
+    .file-selection-stats {
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .stat-item {
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .links-actions-section {
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .manager-toolbar {
+      padding: 0.75rem;
+      gap: 0.75rem;
+    }
+
+    .toolbar-row-primary,
+    .toolbar-row-secondary {
+      gap: 0.5rem;
+      justify-content: center;
+    }
+
+    .toolbar-button {
+      height: 2.25rem;
+      font-size: 0.8rem;
+      padding: 0 1rem;
+      gap: 0.375rem;
+    }
+
+    .file-checkbox {
+      grid-template-columns: auto 1fr;
+      gap: 0.75rem;
+    }
+
+    .filesize {
+      grid-column: 1 / -1;
+      margin-top: 0.25rem;
+      font-size: 0.75rem;
     }
   }
 </style>

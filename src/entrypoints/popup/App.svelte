@@ -16,12 +16,13 @@
   let currentApiKey = $state('');
   let userInfo = $state<User | null>(null);
   let error = $state('');
-  let showApiKey = $state(false);
+  let showSettings = $state(false);
   let appVersion = $state('');
   let torrentManagerRef: { refresh: () => Promise<void> } | null = null;
+  let addMagnetRef: { openModal: () => void } | null = null;
 
-  function toggleApiKey() {
-    showApiKey = !showApiKey;
+  function toggleSettings() {
+    showSettings = !showSettings;
   }
 
   async function getUserInfo() {
@@ -91,30 +92,47 @@
           <i class="fas fa-cloud-download-alt"></i>
           <h1>Real Debrid Manager</h1>
         </div>
-        {#if appVersion}
-          <span class="version-chip">v{appVersion}</span>
-        {/if}
+        <div class="header-actions">
+          {#if appVersion}
+            <span class="version-chip">v{appVersion}</span>
+          {/if}
+          <button class="settings-btn" onclick={toggleSettings}>
+            <i class="fas fa-cog"></i>
+            Settings
+          </button>
+        </div>
       </div>
     </div>
 
-    <div class="api-section" class:connected={userInfo}>
-      <div class="settings-container">
-        <button class="settings-btn" onclick={toggleApiKey}>
-          <i class="fas fa-cog"></i>
-          Settings
-        </button>
-        {#if showApiKey}
-          <div class="settings-panel">
-            <h3>API Key Settings</h3>
+    <!-- Settings Modal -->
+    <div class="modal" class:is-active={showSettings}>
+      <div class="modal-background" onclick={toggleSettings}></div>
+      <div class="modal-content">
+        <div class="settings-card">
+          <header class="settings-card__header">
+            <div class="settings-card__title">
+              <i class="fas fa-cog"></i>
+              <span>Settings</span>
+            </div>
+            <p class="settings-card__subtitle">Configure your Real-Debrid API key and preferences.</p>
+          </header>
+
+          <section class="settings-card__body">
+            <label class="field-label" for="api-key-input">API Key</label>
             <ApiKeyInput {handleApiKeyChange} initialValue={currentApiKey} />
-            <small>
+            <small class="help-text">
               Get your API key from <a href="https://real-debrid.com/apitoken" target="_blank"
                 >real-debrid.com/apitoken</a
               >
             </small>
-          </div>
-        {/if}
+          </section>
+
+          <footer class="settings-card__footer">
+            <button class="button is-light" onclick={toggleSettings}>Close</button>
+          </footer>
+        </div>
       </div>
+      <button onclick={toggleSettings} class="modal-close is-large" aria-label="close"></button>
     </div>
 
     {#if error}
@@ -144,19 +162,23 @@
         </div>
       </div>
 
-      <div class="magnet-strip">
-        <AddMagnet
-          apiKey={currentApiKey}
-          onMagnetAdded={async () => {
-            if (torrentManagerRef?.refresh) {
-              await torrentManagerRef.refresh();
-            }
-          }}
-        />
-      </div>
+      <!-- Add Magnet Component at App level for proper modal rendering -->
+      <AddMagnet
+        bind:this={addMagnetRef}
+        apiKey={currentApiKey}
+        onMagnetAdded={async () => {
+          if (torrentManagerRef?.refresh) {
+            await torrentManagerRef.refresh();
+          }
+        }}
+      />
 
       <!-- Render list of all torrents -->
-      <TorrentManager bind:this={torrentManagerRef} apiKey={currentApiKey} />
+      <TorrentManager
+        bind:this={torrentManagerRef}
+        apiKey={currentApiKey}
+        openAddMagnet={() => addMagnetRef?.openModal()}
+      />
     {/if}
     
     <!-- Footer with version and credits -->
@@ -203,6 +225,12 @@
     width: 100%;
   }
 
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
   .title-main {
     display: flex;
     align-items: center;
@@ -242,28 +270,225 @@
     white-space: nowrap;
   }
 
-  .api-section {
-    margin-bottom: 1.5rem;
+  /* Base Modal Styles */
+  :global(.modal) {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0, 0, 0, 0.4);
   }
 
-  .magnet-strip {
-    margin: 1.5rem 0 0.75rem;
+  :global(.modal.is-active) {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  :global(.modal-background) {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.86);
+  }
+
+  :global(.modal-close) {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    width: 32px;
+    height: 32px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    border-radius: 50%;
+  }
+
+  :global(.modal-close.is-large) {
+    width: 40px;
+    height: 40px;
+  }
+
+  :global(.modal-close:before),
+  :global(.modal-close:after) {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 16px;
+    height: 2px;
+    background-color: #fff;
+    transform-origin: center;
+  }
+
+  :global(.modal-close:before) {
+    transform: translate(-50%, -50%) rotate(45deg);
+  }
+
+  :global(.modal-close:after) {
+    transform: translate(-50%, -50%) rotate(-45deg);
+  }
+
+  :global(.modal-close:hover) {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  /* Button Styles */
+  :global(.button) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    background-color: #363636;
+    color: #fff;
+  }
+
+  :global(.button:hover:not(:disabled)) {
+    background-color: #4a4a4a;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  }
+
+  :global(.button:active:not(:disabled)) {
+    transform: translateY(0);
+  }
+
+  :global(.button:disabled) {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  :global(.button.is-light) {
+    background-color: #f5f5f5;
+    color: rgba(0, 0, 0, 0.7);
+  }
+
+  :global(.button.is-light:hover:not(:disabled)) {
+    background-color: #eeeeee;
+  }
+
+  :global(.button.is-success) {
+    background-color: #48c78e;
+    color: #fff;
+  }
+
+  :global(.button.is-success:hover:not(:disabled)) {
+    background-color: #3dbb81;
+  }
+
+  /* Settings Modal Styles */
+  .modal-content {
+    max-width: 460px;
+    width: calc(100% - 2rem);
+    margin: 3rem auto;
+  }
+
+  .settings-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.96), rgba(34, 34, 34, 0.96));
+    border-radius: 12px;
+    border: 1px solid rgba(120, 75, 160, 0.35);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem 1.65rem 1.35rem;
+  }
+
+  .settings-card__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+  }
+
+  .settings-card__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+  }
+
+  .settings-card__title i {
+    color: #ff3cac;
+    text-shadow: 0 0 10px rgba(255, 60, 172, 0.6);
+  }
+
+  .settings-card__subtitle {
+    margin: 0;
+    color: #9db3d4;
+    font-size: 0.85rem;
+  }
+
+  .settings-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+  }
+
+  .field-label {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #90caf9;
+    margin-bottom: 0.5rem;
+    display: block;
+  }
+
+  .help-text {
+    display: block;
+    margin-top: 0.5rem;
+    color: #888;
+    font-size: 0.8rem;
+  }
+
+  .help-text a {
+    color: #2196f3;
+    text-decoration: none;
+  }
+
+  .help-text a:hover {
+    text-decoration: underline;
+  }
+
+  .settings-card__footer {
     display: flex;
     justify-content: flex-end;
+    gap: 0.75rem;
   }
+
 
   .settings-btn {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.5rem 1rem;
+    padding: 0.4rem 0.8rem;
     background: #2196f3;
     border: none;
     border-radius: 6px;
     color: white;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     transition: all 0.2s ease;
     cursor: pointer;
+    white-space: nowrap;
   }
 
   .settings-btn:hover {
@@ -271,7 +496,7 @@
   }
 
   .settings-btn i {
-    margin-right: 0.25rem;
+    font-size: 0.75rem;
   }
 
   .profile-card {
