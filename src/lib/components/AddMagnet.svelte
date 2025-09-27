@@ -80,7 +80,7 @@
 </script>
 
 <div class="magnet-section">
-  <button class="button is-info is-small" onclick={() => (showModal = !showModal)}>
+  <button class="button is-info" onclick={() => (showModal = !showModal)}>
     <span class="icon">
       <i class="fas fa-magnet"></i>
     </span>

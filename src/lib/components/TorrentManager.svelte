@@ -1,5 +1,4 @@
 <script lang="ts">
-  import AddMagnet from './AddMagnet.svelte';
   import type { Torrent, TorrentFile } from '@/lib/shared/types';
   import type { AppError } from '@/lib/shared/errors';
   import { RealDebridAPI } from '@/lib/shared/RealDebridAPI';
@@ -14,7 +13,8 @@
   let selectedFiles = $state<number[]>([]);
   let currentTorrentFiles = $state<TorrentFile[]>([]);
   let currentTorrentId = $state('');
-  let torrentToDelete = $state('');
+  let torrentsToDelete = $state<string[]>([]);
+  let torrentsToDeleteNames = $state<string[]>([]);
   let currentLinks = $state<string[]>([]);
   let currentLinkNames = $state<string[]>([]);
   let perLinkLoading = $state<{ [key: number]: boolean }>({});
@@ -23,6 +23,15 @@
   // Link states
   const loadingLinks = $state<{ [key: string]: boolean }>({});
   let deletingTorrent = $state(false);
+  let selectedTorrentIds = $state<string[]>([]);
+  let torrentStats = $state<Record<string, { selected: number; total: number | null }>>({});
+
+  const selectableTorrentIds = $derived(() => torrents.map((t) => t.id));
+  const allTorrentsSelected = $derived(
+    () => selectableTorrentIds.length > 0 && selectedTorrentIds.length === selectableTorrentIds.length
+  );
+  const hasSelection = $derived(() => selectedTorrentIds.length > 0);
+  const partiallySelected = $derived(() => hasSelection && !allTorrentsSelected);
 
   const { apiKey } = $props<{
     apiKey: string;
@@ -195,6 +204,8 @@
       
       console.log('Filtered torrents:', filteredTorrents.map(t => ({ id: t.id, filename: t.filename, status: t.status })));
       torrents = filteredTorrents;
+      selectedTorrentIds = selectedTorrentIds.filter((id) => filteredTorrents.some((t) => t.id === id));
+      await hydrateTorrentStats(filteredTorrents);
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
@@ -205,19 +216,42 @@
     }
   }
 
-  async function deleteTorrent(torrentId: string) {
+  export async function refresh() {
+    await fetchTorrents();
+  }
+
+  async function deleteTorrents(torrentIds: string[]) {
+    if (!torrentIds.length) {return;}
+
     deletingTorrent = true;
     try {
       const api = new RealDebridAPI(apiKey);
-      await api.deleteTorrent(torrentId);
-      await fetchTorrents();
-      toastManager.success('Torrent deleted successfully');
-      error = '';
+      const results = await Promise.allSettled(torrentIds.map((id) => api.deleteTorrent(id)));
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      const deletedCount = torrentIds.length - failed.length;
+
+      if (deletedCount) {
+        await fetchTorrents();
+        selectedTorrentIds = selectedTorrentIds.filter((id) => !torrentIds.includes(id));
+        toastManager.success(`Deleted ${deletedCount} torrent${deletedCount === 1 ? '' : 's'} successfully`);
+        error = '';
+      }
+
+      if (failed.length) {
+        const failure = failed[0].reason as AppError | Error;
+        const message =
+          failure && typeof failure === 'object' && 'userMessage' in failure
+            ? (failure as AppError).userMessage
+            : 'Failed to delete some torrents';
+        error = message;
+        toastManager.error(message);
+        failed.forEach((f) => console.error('Failed to delete torrent:', f.reason));
+      }
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
-      toastManager.error(appError.userMessage || 'Failed to delete torrent');
-      console.error('Error deleting torrent:', err);
+      toastManager.error(appError.userMessage || 'Failed to delete torrents');
+      console.error('Error deleting torrents:', err);
     } finally {
       deletingTorrent = false;
     }
@@ -260,28 +294,137 @@
     }
   }
 
+  function toggleTorrentSelection(torrentId: string) {
+    if (selectedTorrentIds.includes(torrentId)) {
+      selectedTorrentIds = selectedTorrentIds.filter((id) => id !== torrentId);
+    } else {
+      selectedTorrentIds = [...selectedTorrentIds, torrentId];
+    }
+  }
+
+  function selectAllTorrents() {
+    selectedTorrentIds = [...selectableTorrentIds];
+  }
+
+  function clearSelectedTorrents() {
+    selectedTorrentIds = [];
+  }
+
+  function getTorrentFileStats(torrent: Torrent) {
+    const stats = torrentStats[torrent.id];
+    const selected = stats?.selected ?? (torrent.links?.length ?? 0);
+    const total = stats?.total ?? null;
+    return { selected, total };
+  }
+
+  function getTorrentFileCountLabel(torrent: Torrent) {
+    const { selected, total } = getTorrentFileStats(torrent);
+    const totalPart = total !== null ? `/${total}` : '/?';
+    return `${selected}${totalPart}`;
+  }
+
   $effect(() => {
     if (apiKey) {
       fetchTorrents();
     }
   });
+
+  async function hydrateTorrentStats(list: Torrent[]) {
+    if (!list.length) {
+      torrentStats = {};
+      return;
+    }
+
+    try {
+      const api = new RealDebridAPI(apiKey);
+      const results = await Promise.allSettled(
+        list.map(async (torrent) => {
+          const info = await api.getTorrentInfo(torrent.id);
+          const files = info.files ?? [];
+          const total = files.length > 0 ? files.length : null;
+          const selectedFromFiles = files.filter((f) => f.selected === 1).length;
+          const selected = selectedFromFiles > 0
+            ? selectedFromFiles
+            : (info.links?.length ?? torrent.links?.length ?? 0);
+
+          return {
+            id: torrent.id,
+            total,
+            selected,
+          };
+        })
+      );
+
+      const next: Record<string, { selected: number; total: number | null }> = {};
+      list.forEach((torrent) => {
+        if (torrentStats[torrent.id]) {
+          next[torrent.id] = torrentStats[torrent.id];
+        }
+      });
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          const { id, total, selected } = result.value;
+          next[id] = { total, selected };
+        }
+      });
+
+      torrentStats = next;
+    } catch (err) {
+      console.error('Error fetching torrent stats:', err);
+    }
+  }
 </script>
 
 <div class="torrent-manager">
-  <div class="columns is-mobile is-vcentered mb-3">
-    <div class="column">
-      <h2 class="title is-5 mb-0">Active Torrents</h2>
+  <div class="manager-header">
+    <div class="manager-heading">
+      <h2>Active Torrents</h2>
+      <p class="subtle">Downloaded items stay visible so you can grab links or clean them up.</p>
     </div>
-    <div class="column is-narrow">
-      <div class="buttons are-small">
-        <AddMagnet {apiKey} onMagnetAdded={fetchTorrents} />
-        <button class="button is-info is-small" onclick={fetchTorrents} disabled={loading}>
-          <span class="icon">
-            <i class="fas fa-sync-alt" class:fa-spin={loading}></i>
-          </span>
-          <span>Refresh</span>
-        </button>
-      </div>
+    <div class="manager-toolbar">
+      <button class="toolbar-button button is-info is-small" onclick={fetchTorrents} disabled={loading}>
+        <span class="icon">
+          <i class="fas fa-sync-alt" class:fa-spin={loading}></i>
+        </span>
+        <span>Refresh</span>
+      </button>
+      <button
+        class="toolbar-button button is-light is-small"
+        onclick={selectAllTorrents}
+        disabled={torrents.length === 0 || allTorrentsSelected}
+      >
+        <span class="icon">
+          <i class="fas fa-check-double"></i>
+        </span>
+        <span>Select All</span>
+      </button>
+      <button
+        class="toolbar-button button is-light is-small"
+        onclick={clearSelectedTorrents}
+        disabled={!hasSelection}
+      >
+        <span class="icon">
+          <i class="fas" class:fa-square={!hasSelection} class:fa-minus-square={partiallySelected} class:fa-check-square={allTorrentsSelected}></i>
+        </span>
+        <span>Clear Selection</span>
+      </button>
+      <button
+        class="toolbar-button button is-danger is-small"
+        disabled={!hasSelection}
+        onclick={() => {
+          torrentsToDelete = [...selectedTorrentIds];
+          torrentsToDeleteNames = selectedTorrentIds.map((id) => {
+            const match = torrents.find((t) => t.id === id);
+            return match ? match.filename : id;
+          });
+          showDeleteModal = true;
+        }}
+      >
+        <span class="icon">
+          <i class="fas fa-trash"></i>
+        </span>
+        <span>Delete Selected</span>
+      </button>
     </div>
   </div>
 
@@ -302,86 +445,97 @@
     <div class="notification is-info is-light">No active torrents found.</div>
   {:else}
     <div class="torrents-list">
-      {#each torrents as torrent}
-        <div class="box torrent-item">
-          <div class="level is-mobile">
-            <div class="level-left">
-              <div class="level-item">
-                <div class="torrent-info">
-                  <p class="title is-6 torrent-filename" title={torrent.filename}>
-                    {torrent.filename}
-                  </p>
-                  <div class="torrent-meta">
-                    <span
-                      class="tag status-tag"
-                      class:is-waiting={torrent.status === 'waiting_files_selection' ||
-                        torrent.status === 'magnet_conversion'}
-                      class:is-downloaded={torrent.status === 'downloaded'}
-                      class:is-error={torrent.status === 'magnet_error'}
-                    >
-                      {torrent.status === 'waiting_files_selection' ||
-                      torrent.status === 'magnet_conversion'
-                        ? 'Waiting'
-                        : torrent.status === 'magnet_error'
-                        ? 'Error'
-                        : 'Downloaded'}
+      {#each torrents as torrent (torrent.id)}
+        <div
+          class="torrent-row"
+          class:is-selected={selectedTorrentIds.includes(torrent.id)}
+        >
+          <div class="torrent-checkbox">
+            <input
+              type="checkbox"
+              checked={selectedTorrentIds.includes(torrent.id)}
+              onchange={() => toggleTorrentSelection(torrent.id)}
+              aria-label={`Select ${torrent.filename}`}
+            />
+          </div>
+          <div class="torrent-body">
+            <div class="torrent-heading">
+              <p class="torrent-name" title={torrent.filename}>
+                {torrent.filename}
+              </p>
+              <div class="torrent-actions">
+                {#if torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion' || torrent.status === 'magnet_error'}
+                  <button
+                    class="button is-small"
+                    class:is-success={torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion'}
+                    class:is-warning={torrent.status === 'magnet_error'}
+                    onclick={() => getTorrentInfo(torrent.id)}
+                  >
+                    <span class="icon">
+                      <i class="fas fa-file-import"></i>
                     </span>
-                    <span class="size-tag">
-                      {(torrent.bytes / (1024 * 1024)).toFixed(1)} MB
+                    <span>{torrent.status === 'magnet_error' ? 'Retry Files' : 'Select Files'}</span>
+                  </button>
+                {:else if torrent.status === 'downloaded' && torrent.links?.length > 0}
+                  <button
+                    class="button is-info is-small"
+                    onclick={() => openLinksModal(torrent)}
+                    disabled={loadingLinks[torrent.id]}
+                    aria-label={torrent.links.length === 1 ? 'Get link' : 'Get links'}
+                  >
+                    <span class="icon">
+                      <i
+                        class="fas"
+                        class:fa-link={!loadingLinks[torrent.id]}
+                        class:fa-spinner={loadingLinks[torrent.id]}
+                        class:fa-spin={loadingLinks[torrent.id]}
+                      ></i>
                     </span>
-                  </div>
-                </div>
+                    <span>
+                      {loadingLinks[torrent.id]
+                        ? 'Preparing...'
+                        : torrent.links.length === 1
+                        ? 'Get Link'
+                        : 'Get Links'}
+                    </span>
+                  </button>
+                {/if}
+                <button
+                  class="button is-danger is-small"
+                  onclick={() => {
+                    showDeleteModal = true;
+                    torrentsToDelete = [torrent.id];
+                    torrentsToDeleteNames = [torrent.filename];
+                  }}
+                  aria-label="Delete torrent"
+                >
+                  <span class="icon">
+                    <i class="fas fa-trash"></i>
+                  </span>
+                </button>
               </div>
             </div>
-            <div class="level-right">
-              {#if torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion' || torrent.status === 'magnet_error'}
-                <button
-                  class="button is-small mr-2"
-                  class:is-success={torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion'}
-                  class:is-warning={torrent.status === 'magnet_error'}
-                  onclick={() => getTorrentInfo(torrent.id)}
-                >
-                  <span class="icon">
-                    <i class="fas fa-file-import"></i>
-                  </span>
-                  <span>{torrent.status === 'magnet_error' ? 'Retry Files' : 'Select Files'}</span>
-                </button>
-              {:else if torrent.status === 'downloaded' && torrent.links?.length > 0}
-                <button
-                  class="button is-info is-small mr-2"
-                  onclick={() => openLinksModal(torrent)}
-                  disabled={loadingLinks[torrent.id]}
-                  aria-label={torrent.links.length === 1 ? 'Get link' : 'Get links'}
-                >
-                  <span class="icon">
-                    <i
-                      class="fas"
-                      class:fa-link={!loadingLinks[torrent.id]}
-                      class:fa-spinner={loadingLinks[torrent.id]}
-                      class:fa-spin={loadingLinks[torrent.id]}
-                    ></i>
-                  </span>
-                  <span>
-                    {loadingLinks[torrent.id]
-                      ? 'Preparing...'
-                      : torrent.links.length === 1
-                      ? 'Get Link'
-                      : 'Get Links'}
-                  </span>
-                </button>
-              {/if}
-              <button
-                class="button is-danger is-small"
-                onclick={() => {
-                  showDeleteModal = true;
-                  torrentToDelete = torrent.id;
-                }}
-                aria-label="Delete torrent"
+            <div class="torrent-meta">
+              <span
+                class="tag status-tag"
+                class:is-waiting={torrent.status === 'waiting_files_selection' ||
+                  torrent.status === 'magnet_conversion'}
+                class:is-downloaded={torrent.status === 'downloaded'}
+                class:is-error={torrent.status === 'magnet_error'}
               >
-                <span class="icon">
-                  <i class="fas fa-trash"></i>
-                </span>
-              </button>
+                {torrent.status === 'waiting_files_selection' ||
+                torrent.status === 'magnet_conversion'
+                  ? 'Waiting'
+                  : torrent.status === 'magnet_error'
+                  ? 'Error'
+                  : 'Downloaded'}
+              </span>
+              <span class="size-tag">
+                {(torrent.bytes / (1024 * 1024)).toFixed(1)} MB
+              </span>
+              <span class="file-count" title={`Files selected for download: ${getTorrentFileCountLabel(torrent)}`}>
+                {getTorrentFileCountLabel(torrent)}
+              </span>
             </div>
           </div>
         </div>
@@ -409,7 +563,7 @@
         </label>
       </div>
       <div class="file-list">
-        {#each currentTorrentFiles as file}
+        {#each currentTorrentFiles as file (file.id)}
           <div class="file-item">
             <label class="checkbox">
               <input
@@ -451,7 +605,7 @@
         </button>
       </div>
       <div class="links-list">
-        {#each currentLinks as link, i}
+        {#each currentLinks as link, i (`${link}-${i}`)}
           <div class="link-item">
             <div class="link-name" title={currentLinkNames[i] || `File ${i + 1}`}>
               {currentLinkNames[i] || `File ${i + 1}`}
@@ -481,10 +635,32 @@
   <div class="modal-card delete-confirmation">
     <header class="modal-card-head">
       <p class="modal-card-title">Confirm Delete</p>
-      <button class="delete" aria-label="close" onclick={() => (showDeleteModal = false)}></button>
+      <button
+        class="delete"
+        aria-label="close"
+        onclick={() => {
+          showDeleteModal = false;
+          torrentsToDelete = [];
+          torrentsToDeleteNames = [];
+        }}
+      ></button>
     </header>
     <section class="modal-card-body">
-      <p>Are you sure you want to delete this torrent? This action cannot be undone.</p>
+      <p>
+        {#if torrentsToDelete.length === 1}
+          Are you sure you want to delete
+          <strong>{torrentsToDeleteNames[0] ?? 'this torrent'}</strong>? This action cannot be undone.
+        {:else}
+          Are you sure you want to delete {torrentsToDelete.length} torrents? This action cannot be undone.
+        {/if}
+      </p>
+      {#if torrentsToDelete.length > 1}
+        <ul class="delete-list">
+          {#each torrentsToDeleteNames as name, i (`${name}-${i}`)}
+            <li>{name}</li>
+          {/each}
+        </ul>
+      {/if}
     </section>
     <footer class="modal-card-foot">
       <button
@@ -492,14 +668,24 @@
         class:is-loading={deletingTorrent}
         disabled={deletingTorrent}
         onclick={async () => {
-          await deleteTorrent(torrentToDelete);
+          await deleteTorrents(torrentsToDelete);
           showDeleteModal = false;
-          torrentToDelete = '';
+          torrentsToDelete = [];
+          torrentsToDeleteNames = [];
         }}
       >
         Delete
       </button>
-      <button class="button" onclick={() => (showDeleteModal = false)}> Cancel </button>
+      <button
+        class="button"
+        onclick={() => {
+          showDeleteModal = false;
+          torrentsToDelete = [];
+          torrentsToDeleteNames = [];
+        }}
+      >
+        Cancel
+      </button>
     </footer>
   </div>
 </div>
@@ -515,11 +701,53 @@
     border: 1px solid #333;
   }
 
-  /* Title and Button Styles */
-  :global(.title.is-5) {
+  .manager-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .manager-heading {
+    flex: 1 1 260px;
+  }
+
+  .manager-heading h2 {
     color: #2196f3;
-    font-size: 1.1rem;
-    margin-bottom: 0;
+    font-size: 1.2rem;
+    margin: 0;
+  }
+
+  .subtle {
+    color: #8aa4c7;
+    font-size: 0.85rem;
+    margin-top: 0.35rem;
+    max-width: 28rem;
+  }
+
+  .manager-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    flex: 0 1 100%;
+  }
+
+  .toolbar-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.85rem;
+    padding: 0.35rem 0.85rem;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex: 0 0 auto;
+  }
+
+  .toolbar-button .icon {
+    margin: 0;
   }
 
   :global(.button.is-info) {
@@ -530,100 +758,129 @@
     background-color: #1976d2;
   }
 
-  /* Torrent Item Styles */
-  .torrent-item {
-    background-color: #2a2a2a;
-    margin-bottom: 0.75rem;
+  .torrents-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .torrent-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    background-color: #242424;
     border: 1px solid #333;
-    transition: all 0.2s ease;
+    border-radius: 8px;
+    align-items: center;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
   }
 
-  .torrent-item:hover {
-    border-color: #2196f3;
-    background-color: #323232;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(33, 150, 243, 0.1);
+  .torrent-row:hover {
+    border-color: #2f80ed;
+    background-color: #2a2a2a;
   }
 
-  .torrent-item:last-child {
-    margin-bottom: 0;
+  .torrent-row.is-selected {
+    border-color: #2f80ed;
+    box-shadow: 0 0 0 1px rgba(47, 128, 237, 0.35);
   }
 
-  /* Level Layout Styles */
-  .level-left {
-    flex: 1;
-    min-width: 0;
-    max-width: calc(100% - 160px); /* Reserve space for buttons */
+  .torrent-checkbox {
+    display: flex;
+    align-items: center;
   }
 
-  .level-right {
-    flex-shrink: 0;
-    min-width: 160px;
+  .torrent-checkbox input {
+    width: 18px;
+    height: 18px;
+    accent-color: #ff3860;
   }
 
-  .level-item {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .torrent-info {
-    width: 100%;
+  .torrent-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
     min-width: 0;
   }
 
-  /* Torrent Title Styles */
-  :global(.torrent-item .title.is-6) {
+  .torrent-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    min-width: 0;
+  }
+
+  .torrent-name {
+    font-size: 1rem;
+    font-weight: 600;
     color: #fff;
-    margin-bottom: 0.5rem;
-    max-width: 100%;
+    margin: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    cursor: help;
   }
 
-  .torrent-filename {
-    transition: color 0.2s ease;
-  }
-
-  .torrent-filename:hover {
+  .torrent-name:hover {
     color: #2196f3;
   }
 
-  /* Torrent Meta Styles */
+  .torrent-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: nowrap;
+    align-items: center;
+  }
+
+  .torrent-actions .button {
+    min-height: 2.1rem;
+    font-size: 0.85rem;
+  }
+
   .torrent-meta {
     display: flex;
     align-items: center;
-    gap: 1rem;
-    max-width: 100%;
+    gap: 0.75rem;
+    font-size: 0.85rem;
+    color: #9db3d4;
     flex-wrap: wrap;
   }
 
   .status-tag {
     font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-weight: 500;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
   }
 
   .status-tag.is-waiting {
-    background-color: rgba(255, 193, 7, 0.2);
-    color: #ffc107;
+    background-color: rgba(255, 193, 7, 0.18);
+    color: #ffca28;
   }
 
   .status-tag.is-downloaded {
     background-color: rgba(76, 175, 80, 0.2);
-    color: #4caf50;
+    color: #72d572;
   }
+
   .status-tag.is-error {
-    background-color: rgba(244, 67, 54, 0.2);
-    color: #f44336;
+    background-color: rgba(244, 67, 54, 0.18);
+    color: #ef5350;
   }
 
   .size-tag {
-    color: #90caf9;
-    font-size: 0.8rem;
     font-weight: 500;
+  }
+
+  .file-count {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #b3c7e7;
+    background-color: rgba(59, 130, 246, 0.15);
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
   }
 
   /* Modal Styles */
@@ -815,6 +1072,20 @@
   .delete-confirmation .modal-card-body {
     padding: 1.5rem;
     text-align: center;
+  }
+
+  .delete-list {
+    margin-top: 1rem;
+    padding-left: 1.25rem;
+    text-align: left;
+    color: #ddd;
+    font-size: 0.9rem;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+
+  .delete-list li + li {
+    margin-top: 0.35rem;
   }
 
   .delete-confirmation .modal-card-foot {

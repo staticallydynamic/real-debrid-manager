@@ -5,6 +5,7 @@
   import { StorageManager } from '@/lib/shared/StorageManager';
   import { RealDebridAPI } from '@/lib/shared/RealDebridAPI';
   import TorrentManager from '@/lib/components/TorrentManager.svelte';
+  import AddMagnet from '@/lib/components/AddMagnet.svelte';
   import ToastContainer from '@/lib/components/ToastContainer.svelte';
   import { CACHE_KEYS, CACHE_TTL } from '@/lib/shared/constants';
   import type { AppError } from '@/lib/shared/errors';
@@ -17,6 +18,7 @@
   let error = $state('');
   let showApiKey = $state(false);
   let appVersion = $state('');
+  let torrentManagerRef: { refresh: () => Promise<void> } | null = null;
 
   function toggleApiKey() {
     showApiKey = !showApiKey;
@@ -135,8 +137,19 @@
         </div>
       </div>
 
+      <div class="magnet-strip">
+        <AddMagnet
+          apiKey={currentApiKey}
+          onMagnetAdded={async () => {
+            if (torrentManagerRef?.refresh) {
+              await torrentManagerRef.refresh();
+            }
+          }}
+        />
+      </div>
+
       <!-- Render list of all torrents -->
-      <TorrentManager apiKey={currentApiKey} />
+      <TorrentManager bind:this={torrentManagerRef} apiKey={currentApiKey} />
     {/if}
     
     <!-- Footer with version and credits -->
@@ -196,6 +209,12 @@
 
   .api-section {
     margin-bottom: 1.5rem;
+  }
+
+  .magnet-strip {
+    margin: 1.5rem 0 0.75rem;
+    display: flex;
+    justify-content: flex-end;
   }
 
   .settings-btn {
