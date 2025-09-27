@@ -159,7 +159,7 @@
           <span>v{appVersion}</span> •
         {/if}
         <a href="https://github.com/staticallydynamic/real-debrid-manager/issues" target="_blank" title="Report issues or suggestions">
-          <i class="fas fa-bug"></i> Issues
+          <i class="fas fa-bug"></i> Found an Issue? Let us know! 🤗
         </a> • 
         <span>by <strong>supamerz</strong></span>
       </div>
