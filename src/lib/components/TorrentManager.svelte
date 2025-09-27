@@ -21,9 +21,14 @@
   let perDownloadLoading = $state<{ [key: number]: boolean }>({});
   let bulkCopyLoading = $state(false);
   let bulkDownloadLoading = $state(false);
+  let showViewFilesModal = $state(false);
+  let viewFiles = $state<TorrentFile[]>([]);
+  let viewFilesTitle = $state('');
+  let viewFilesNotice = $state('');
 
   // Link states
   const loadingLinks = $state<{ [key: string]: boolean }>({});
+  const viewFilesLoading = $state<{ [key: string]: boolean }>({});
   let deletingTorrent = $state(false);
   let selectedTorrentIds = $state<string[]>([]);
   let torrentStats = $state<Record<string, { selected: number; total: number | null }>>({});
@@ -290,6 +295,42 @@
       console.error('Error starting downloads:', err);
     } finally {
       bulkDownloadLoading = false;
+    }
+  }
+
+  async function viewSelectedFiles(torrent: Torrent) {
+    const { id } = torrent;
+    if (!apiKey) {return;}
+    if (viewFilesLoading[id]) {return;}
+
+    viewFilesLoading[id] = true;
+    viewFilesNotice = '';
+
+    try {
+      const api = new RealDebridAPI(apiKey);
+      const info = await api.getTorrentInfo(id);
+      const files = info.files ?? [];
+      const selected = files.filter((f) => f.selected === 1);
+
+      const list = selected.length ? selected : files;
+      viewFiles = list;
+      viewFilesTitle = torrent.filename;
+
+      if (selected.length === 0 && files.length > 0) {
+        viewFilesNotice = 'No files are marked selected. Showing all available files.';
+      } else if (files.length === 0) {
+        viewFilesNotice = 'No file information available for this torrent yet.';
+      }
+
+      showViewFilesModal = true;
+      error = '';
+    } catch (err) {
+      const appError = err as AppError;
+      error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to load file list');
+      console.error('Error viewing selected files:', err);
+    } finally {
+      viewFilesLoading[id] = false;
     }
   }
 
@@ -596,6 +637,22 @@
                 <span class="file-count" title={`Files selected for download: ${getTorrentFileCountLabel(torrent)}`}>
                   {getTorrentFileCountLabel(torrent)}
                 </span>
+                <button
+                  class="view-files-btn"
+                  onclick={() => viewSelectedFiles(torrent)}
+                  disabled={!!viewFilesLoading[torrent.id]}
+                  aria-label="View selected files"
+                >
+                  <span class="icon is-small">
+                    <i
+                      class="fas"
+                      class:fa-list={!viewFilesLoading[torrent.id]}
+                      class:fa-spinner={!!viewFilesLoading[torrent.id]}
+                      class:fa-spin={!!viewFilesLoading[torrent.id]}
+                    ></i>
+                  </span>
+                  <span>{viewFilesLoading[torrent.id] ? 'Loading...' : 'View Files'}</span>
+                </button>
                 {#if typeof torrent.progress === 'number' && torrent.progress > 0 && torrent.progress < 100}
                   <span class="progress-text">{Math.round(torrent.progress)}%</span>
                 {/if}
@@ -798,6 +855,58 @@
     </footer>
   </div>
   
+</div>
+
+<!-- View Selected Files Modal -->
+<div class="modal" class:is-active={showViewFilesModal}>
+  <div class="modal-background"></div>
+  <div class="modal-card view-files-modal">
+    <header class="modal-card-head">
+      <p class="modal-card-title">Files for {viewFilesTitle}</p>
+      <button
+        class="delete"
+        aria-label="close"
+        onclick={() => {
+          showViewFilesModal = false;
+          viewFiles = [];
+          viewFilesTitle = '';
+          viewFilesNotice = '';
+        }}
+      ></button>
+    </header>
+    <section class="modal-card-body">
+      {#if viewFilesNotice}
+        <div class="notification is-info is-light view-files-notice">
+          {viewFilesNotice}
+        </div>
+      {/if}
+      {#if viewFiles.length === 0}
+        <div class="view-files-empty">No files to display.</div>
+      {:else}
+        <ul class="view-files-list">
+          {#each viewFiles as file (file.id)}
+            <li>
+              <span class="file-name" title={file.path}>{file.path.split('/').pop()}</span>
+              <span class="file-size">{(file.bytes / (1024 * 1024)).toFixed(1)} MB</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    </section>
+    <footer class="modal-card-foot">
+      <button
+        class="button"
+        onclick={() => {
+          showViewFilesModal = false;
+          viewFiles = [];
+          viewFilesTitle = '';
+          viewFilesNotice = '';
+        }}
+      >
+        Close
+      </button>
+    </footer>
+  </div>
 </div>
 
 <!-- Delete Confirmation Modal -->
@@ -1085,6 +1194,85 @@
     font-weight: 600;
     font-size: 0.8rem;
     color: #64b5f6;
+  }
+
+  .view-files-btn {
+    border: none;
+    background-color: rgba(59, 130, 246, 0.12);
+    color: #90caf9;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+
+  .view-files-btn:hover {
+    background-color: rgba(59, 130, 246, 0.2);
+  }
+
+  .view-files-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .view-files-btn .icon {
+    margin: 0;
+    display: inline-flex;
+  }
+
+  .view-files-modal .modal-card-body {
+    padding: 1.25rem;
+    background-color: #1e1e1e;
+  }
+
+  .view-files-notice {
+    margin-bottom: 0.75rem;
+  }
+
+  .view-files-empty {
+    color: #9db3d4;
+    text-align: center;
+    padding: 1rem 0;
+  }
+
+  .view-files-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+
+  .view-files-list li {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    background-color: #242424;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 0.65rem 0.85rem;
+  }
+
+  .view-files-list .file-name {
+    color: #fff;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1 1 auto;
+  }
+
+  .view-files-list .file-size {
+    color: #90caf9;
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   /* Modal Styles */
