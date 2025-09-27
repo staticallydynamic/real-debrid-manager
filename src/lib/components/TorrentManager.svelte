@@ -33,14 +33,13 @@
   let selectedTorrentIds = $state<string[]>([]);
   let torrentStats = $state<Record<string, { selected: number; total: number | null }>>({});
 
-  const selectableTorrentIds = $derived(() => Array.from(new Set(torrents.map((t) => t.id))));
-  const totalSelectable = $derived(() => selectableTorrentIds.length);
-  const selectedIdSet = $derived(() => new Set(selectedTorrentIds));
+  const selectedIdSet = $derived(new Set(selectedTorrentIds));
+  const totalTorrents = $derived(torrents.length);
   const allTorrentsSelected = $derived(
-    () => totalSelectable > 0 && torrents.every((t) => selectedIdSet.has(t.id))
+    totalTorrents > 0 && torrents.every((t) => selectedIdSet.has(t.id))
   );
-  const hasSelection = $derived(() => torrents.some((t) => selectedIdSet.has(t.id)));
-  const partiallySelected = $derived(() => hasSelection && !allTorrentsSelected);
+  const hasSelection = $derived(torrents.some((t) => selectedIdSet.has(t.id)));
+  const partiallySelected = $derived(hasSelection && !allTorrentsSelected);
 
   const { apiKey } = $props<{
     apiKey: string;
@@ -392,7 +391,20 @@
     deletingTorrent = true;
     try {
       const api = new RealDebridAPI(apiKey);
-      const results = await Promise.allSettled(torrentIds.map((id) => api.deleteTorrent(id)));
+      const BATCH_SIZE = 2;
+      const DELAY_MS = 800;
+      const results: PromiseSettledResult<void>[] = [];
+
+      for (let i = 0; i < torrentIds.length; i += BATCH_SIZE) {
+        const batch = torrentIds.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.allSettled(batch.map((id) => api.deleteTorrent(id)));
+        results.push(...batchResults);
+
+        if (i + BATCH_SIZE < torrentIds.length) {
+          await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+        }
+      }
+
       const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
       const deletedCount = torrentIds.length - failed.length;
 
@@ -468,6 +480,17 @@
     } else {
       selectedTorrentIds = selectedTorrentIds.filter((id) => id !== torrentId);
     }
+  }
+
+  function selectAllTorrents() {
+    if (!torrents.length) {
+      selectedTorrentIds = [];
+      return;
+    }
+
+    const next = new Set(selectedTorrentIds);
+    torrents.forEach((torrent) => next.add(torrent.id));
+    selectedTorrentIds = Array.from(next);
   }
 
   function clearSelectedTorrents() {
@@ -551,6 +574,16 @@
           <i class="fas fa-sync-alt" class:fa-spin={loading}></i>
         </span>
         <span>Refresh</span>
+      </button>
+      <button
+        class="toolbar-button button is-light is-small"
+        onclick={selectAllTorrents}
+        disabled={totalTorrents === 0 || allTorrentsSelected}
+      >
+        <span class="icon">
+          <i class="fas fa-check-double"></i>
+        </span>
+        <span>Select All</span>
       </button>
       <button
         class="toolbar-button button is-light is-small"
@@ -1266,7 +1299,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 30rem;
     flex: 1 1 auto;
+    border: none;
   }
 
   .view-files-list .file-size {
