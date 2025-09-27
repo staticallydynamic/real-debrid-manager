@@ -15,11 +15,11 @@
 
   let currentApiKey = $state('');
   let userInfo = $state<User | null>(null);
-  let error = $state('');
   let showSettings = $state(false);
   let appVersion = $state('');
   let torrentManagerRef: { refresh: () => Promise<void> } | null = null;
   let addMagnetRef: { openModal: () => void } | null = null;
+  let skipNextFetch = $state(false);
 
   function toggleSettings() {
     showSettings = !showSettings;
@@ -34,7 +34,6 @@
       if (cachedUser) {
         console.log('Using cached user info');
         userInfo = cachedUser;
-        error = '';
         return;
       }
 
@@ -43,11 +42,9 @@
       userInfo = userData;
       // Cache the response
       await storage.set(CACHE_KEYS.USER_INFO, userData, CACHE_TTL.USER_INFO);
-      error = '';
     } catch (err) {
       userInfo = null;
       const appError = err as AppError;
-      error = appError.userMessage || appError.message;
       toastManager.error(appError.userMessage || 'Failed to fetch user info');
       console.error('Error fetching user info:', err);
     }
@@ -66,20 +63,48 @@
   });
 
   $effect(() => {
-    if (currentApiKey) {
-      getUserInfo();
+    if (!currentApiKey) {
+      userInfo = null;
+      return;
     }
+
+    if (skipNextFetch) {
+      skipNextFetch = false;
+      return;
+    }
+
+    getUserInfo();
   });
 
-  async function handleApiKeyChange(apiKey: string) {
+  async function handleApiKeyChange(rawApiKey: string) {
+    const apiKey = rawApiKey.trim();
     try {
+      if (!apiKey) {
+        await storage.setApiKey('');
+        await storage.clear(CACHE_KEYS.USER_INFO);
+        skipNextFetch = true;
+        currentApiKey = '';
+        userInfo = null;
+        toastManager.info('API key cleared');
+        return;
+      }
+
+      const api = new RealDebridAPI(apiKey);
+      const userData = await api.getUserInfo();
+
       await storage.setApiKey(apiKey);
-      // Clear cache when API key changes
       await storage.clear(CACHE_KEYS.USER_INFO);
+      await storage.set(CACHE_KEYS.USER_INFO, userData, CACHE_TTL.USER_INFO);
+
+      skipNextFetch = true;
       currentApiKey = apiKey;
+      userInfo = userData;
+      toastManager.success('API key saved! You\'re good to go.');
     } catch (e) {
-      console.error('Error saving API key:', e);
-      toastManager.error('Failed to save API key');
+      const appError = e as AppError;
+      const message = appError?.userMessage || appError?.message || 'Failed to validate API key';
+      console.error('Error validating API key:', e);
+      toastManager.error(message);
     }
   }
 </script>
@@ -135,11 +160,21 @@
       <button onclick={toggleSettings} class="modal-close is-large" aria-label="close"></button>
     </div>
 
-    {#if error}
-      <div class="error-message">{error}</div>
-    {/if}
-
-    {#if userInfo}
+    {#if !currentApiKey}
+      <div class="empty-state">
+        <div class="empty-state__icon">
+          <i class="fas fa-key"></i>
+        </div>
+        <h2>Add Your API Key</h2>
+        <p>
+          To start using Real Debrid Manager, open settings and add your Real-Debrid API key.
+        </p>
+        <button class="settings-btn" onclick={toggleSettings}>
+          <i class="fas fa-cog"></i>
+          Open Settings
+        </button>
+      </div>
+    {:else if userInfo}
       <div class="profile-card">
         <div class="profile-info">
           <div class="info-row">
@@ -499,6 +534,47 @@
     font-size: 0.75rem;
   }
 
+  .empty-state {
+    margin-top: 2rem;
+    padding: 2rem;
+    text-align: center;
+    background: linear-gradient(135deg, rgba(34, 34, 34, 0.92), rgba(20, 20, 20, 0.92));
+    border-radius: 12px;
+    border: 1px solid rgba(120, 75, 160, 0.35);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .empty-state__icon {
+    display: inline-flex;
+    width: 56px;
+    height: 56px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(120, 75, 160, 0.25);
+    color: #ff3cac;
+    font-size: 1.5rem;
+    box-shadow: 0 0 12px rgba(120, 75, 160, 0.3);
+  }
+
+  .empty-state h2 {
+    margin: 0;
+    color: #fff;
+    font-size: 1.1rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .empty-state p {
+    margin: 0;
+    color: #9db3d4;
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+
   .profile-card {
     position: relative;
     border-radius: 12px;
@@ -632,14 +708,6 @@
 
   small a:hover {
     text-decoration: underline;
-  }
-
-  .error-message {
-    background-color: #ff5252;
-    color: white;
-    padding: 0.75rem;
-    border-radius: 6px;
-    margin-bottom: 1rem;
   }
 
   .footer {
