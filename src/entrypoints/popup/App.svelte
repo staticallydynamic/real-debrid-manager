@@ -275,10 +275,49 @@
   }
 
   .profile-card {
-    background-color: #2196f3;
-    border-radius: 8px;
-    padding: 1rem;
-    margin-top: 1rem;
+    position: relative;
+    border-radius: 12px;
+    padding: 1.35rem;
+    margin-top: 1.2rem;
+    background: linear-gradient(135deg, rgba(34, 34, 34, 0.92), rgba(20, 20, 20, 0.92));
+    overflow: hidden;
+  }
+
+  .profile-card::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, #ff3cac, #784ba0, #2b86c5, #ff3cac);
+    background-size: 300% 300%;
+    animation: border-flow 18s linear infinite;
+    z-index: 0;
+  }
+
+  .profile-card::after {
+    content: '';
+    position: absolute;
+    inset: 2px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.92), rgba(34, 34, 34, 0.92));
+    z-index: 0;
+  }
+
+  .profile-info {
+    position: relative;
+    z-index: 1;
+  }
+
+  @keyframes border-flow {
+    0% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+    100% {
+      background-position: 0% 50%;
+    }
   }
 
   .info-row {
