@@ -1,5 +1,4 @@
 <script lang="ts">
-  import AddMagnet from './AddMagnet.svelte';
   import type { Torrent, TorrentFile } from '@/lib/shared/types';
   import type { AppError } from '@/lib/shared/errors';
   import { RealDebridAPI } from '@/lib/shared/RealDebridAPI';
@@ -14,50 +13,176 @@
   let selectedFiles = $state<number[]>([]);
   let currentTorrentFiles = $state<TorrentFile[]>([]);
   let currentTorrentId = $state('');
-  let torrentToDelete = $state('');
+  let torrentsToDelete = $state<string[]>([]);
+  let torrentsToDeleteNames = $state<string[]>([]);
   let currentLinks = $state<string[]>([]);
   let currentLinkNames = $state<string[]>([]);
-  let perLinkLoading = $state<{ [key: number]: boolean }>({});
-  let bulkLinksLoading = $state(false);
+  let perCopyLoading = $state<{ [key: number]: boolean }>({});
+  let perDownloadLoading = $state<{ [key: number]: boolean }>({});
+  let bulkCopyLoading = $state(false);
+  let bulkDownloadLoading = $state(false);
+  let showViewFilesModal = $state(false);
+  let viewFiles = $state<TorrentFile[]>([]);
+  let viewFilesTitle = $state('');
+  let viewFilesNotice = $state('');
 
   // Link states
   const loadingLinks = $state<{ [key: string]: boolean }>({});
+  const viewFilesLoading = $state<{ [key: string]: boolean }>({});
   let deletingTorrent = $state(false);
+  let selectedTorrentIds = $state<string[]>([]);
+  let torrentStats = $state<Record<string, { selected: number; total: number | null }>>({});
 
-  const { apiKey } = $props<{
+  const selectedIdSet = $derived(new Set(selectedTorrentIds));
+  const totalTorrents = $derived(torrents.length);
+  const allTorrentsSelected = $derived(
+    totalTorrents > 0 && torrents.every((t) => selectedIdSet.has(t.id))
+  );
+  const hasSelection = $derived(torrents.some((t) => selectedIdSet.has(t.id)));
+  const partiallySelected = $derived(hasSelection && !allTorrentsSelected);
+
+  // File selection stats
+  const selectedFileCount = $derived(selectedFiles.length);
+  const totalFileCount = $derived(currentTorrentFiles.length);
+  const selectedFilesTotalSize = $derived(() => {
+    return currentTorrentFiles
+      .filter(file => selectedFiles.includes(file.id))
+      .reduce((total, file) => total + file.bytes, 0);
+  });
+
+  const { apiKey, openAddMagnet } = $props<{
     apiKey: string;
+    openAddMagnet?: () => void;
   }>();
 
-  async function getUnrestrictedLink(link: string, torrentId: string) {
-    if (loadingLinks[torrentId]) {return;} //prevent double click
+  function triggerAddMagnet() {
+    console.log('Send Magnet button clicked - calling openAddMagnet');
+    if (openAddMagnet) {
+      openAddMagnet();
+    }
+  }
 
+  const VISIBLE_STATUSES = new Set<Torrent['status']>([
+    'downloaded',
+    'waiting_files_selection',
+    'magnet_conversion',
+    'magnet_error',
+    'downloading',
+    'compressing',
+    'uploading',
+    'queued',
+  ]);
+  const WAITING_STATUSES = new Set<Torrent['status']>(['waiting_files_selection', 'magnet_conversion', 'queued']);
+  const ACTIVE_STATUSES = new Set<Torrent['status']>(['downloading', 'compressing', 'uploading']);
+  const ERROR_STATUSES = new Set<Torrent['status']>(['magnet_error', 'error', 'dead']);
+
+  function getStatusLabel(status: Torrent['status']): string {
+    switch (status) {
+      case 'downloaded':
+        return 'Downloaded';
+      case 'waiting_files_selection':
+        return 'Waiting';
+      case 'magnet_conversion':
+        return 'Converting';
+      case 'magnet_error':
+        return 'Magnet Error';
+      case 'downloading':
+        return 'Downloading';
+      case 'compressing':
+        return 'Processing';
+      case 'uploading':
+        return 'Uploading';
+      case 'queued':
+        return 'Queued';
+      case 'error':
+        return 'Error';
+      case 'dead':
+        return 'Unavailable';
+      default:
+        return status.replace(/_/g, ' ');
+    }
+  }
+
+  function formatFileSize(bytes: number): string {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
+  }
+
+  function openUrlInBrowser(url: string) {
     try {
-      loadingLinks[torrentId] = true;
+      if (chrome?.downloads?.download) {
+        chrome.downloads.download({ url });
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to trigger chrome.downloads:', err);
+    }
 
+    if (chrome?.tabs?.create) {
+      chrome.tabs.create({ url });
+    } else {
+      window.open(url, '_blank', 'noopener');
+    }
+  }
+
+  async function copyDirectLink(link: string) {
+    try {
       const api = new RealDebridAPI(apiKey);
       const data = await api.getUnrestrictedLink(link);
-
-      // Copy to clipboard
       await navigator.clipboard.writeText(data.download);
-      toastManager.success('Download link copied to clipboard!');
+      toastManager.success('Download link copied to clipboard');
       error = '';
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
       toastManager.error(appError.userMessage || 'Failed to get download link');
-      console.error('Error getting unrestricted link:', err);
-    } finally {
-      loadingLinks[torrentId] = false;
+      console.error('Error copying unrestricted link:', err);
+      throw err;
     }
   }
 
-  async function openLinksModal(torrent: Torrent) {
-    const { id, links } = torrent;
-    if (!links || links.length === 0) { return; }
+  async function downloadDirectLink(link: string) {
+    try {
+      const api = new RealDebridAPI(apiKey);
+      const data = await api.getUnrestrictedLink(link);
+      openUrlInBrowser(data.download);
+      toastManager.success('Download started in browser');
+      error = '';
+    } catch (err) {
+      const appError = err as AppError;
+      error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to start download');
+      console.error('Error retrieving download link:', err);
+      throw err;
+    }
+  }
 
-    // If only one link, keep the current quick-copy flow
+  async function handleTorrentLinks(torrent: Torrent, mode: 'copy' | 'download') {
+    const { id, links } = torrent;
+    if (!links || links.length === 0) {
+      toastManager.error('No links available for this torrent yet');
+      return;
+    }
+
+    if (loadingLinks[id]) {return;}
+
     if (links.length === 1) {
-      return getUnrestrictedLink(links[0], id);
+      try {
+        loadingLinks[id] = true;
+        if (mode === 'copy') {
+          await copyDirectLink(links[0]);
+        } else {
+          await downloadDirectLink(links[0]);
+        }
+      } catch {
+        // handled in helper functions
+      } finally {
+        loadingLinks[id] = false;
+      }
+      return;
     }
 
     try {
@@ -65,7 +190,6 @@
       currentTorrentId = id;
       currentLinks = links;
 
-      // Try to fetch file names to label links; fall back to generic names
       let names: string[] = [];
       try {
         const api = new RealDebridAPI(apiKey);
@@ -75,7 +199,7 @@
         if (selectedFiles.length === links.length) {
           names = selectedFiles.map((f) => f.path.split('/').pop() || 'File');
         }
-      } catch (e) {
+      } catch {
         // Non-fatal; we'll fall back to generic names
       }
 
@@ -84,7 +208,8 @@
       }
 
       currentLinkNames = names;
-      perLinkLoading = {};
+      perCopyLoading = {};
+      perDownloadLoading = {};
       showLinksModal = true;
       error = '';
     } catch (err) {
@@ -102,19 +227,26 @@
     if (!link) { return; }
 
     try {
-      perLinkLoading[index] = true;
-      const api = new RealDebridAPI(apiKey);
-      const data = await api.getUnrestrictedLink(link);
-      await navigator.clipboard.writeText(data.download);
-      toastManager.success('Download link copied');
-      error = '';
-    } catch (err) {
-      const appError = err as AppError;
-      error = appError.userMessage || appError.message;
-      toastManager.error(appError.userMessage || 'Failed to copy link');
-      console.error('Error copying single link:', err);
+      perCopyLoading[index] = true;
+      await copyDirectLink(link);
+    } catch {
+      // handled in helper
     } finally {
-      perLinkLoading[index] = false;
+      perCopyLoading[index] = false;
+    }
+  }
+
+  async function downloadSingleLink(index: number) {
+    const link = currentLinks[index];
+    if (!link) { return; }
+
+    try {
+      perDownloadLoading[index] = true;
+      await downloadDirectLink(link);
+    } catch {
+      // handled in helper
+    } finally {
+      perDownloadLoading[index] = false;
     }
   }
 
@@ -122,14 +254,14 @@
     if (!currentLinks.length) { return; }
 
     try {
-      bulkLinksLoading = true;
+      bulkCopyLoading = true;
       const api = new RealDebridAPI(apiKey);
       const results = await Promise.all(
         currentLinks.map(async (l) => {
           try {
             const data = await api.getUnrestrictedLink(l);
             return data.download;
-          } catch (e) {
+          } catch {
             return null;
           }
         })
@@ -150,7 +282,79 @@
       toastManager.error(appError.userMessage || 'Failed to copy links');
       console.error('Error copying all links:', err);
     } finally {
-      bulkLinksLoading = false;
+      bulkCopyLoading = false;
+    }
+  }
+
+  async function downloadAllLinks() {
+    if (!currentLinks.length) { return; }
+
+    try {
+      bulkDownloadLoading = true;
+      const api = new RealDebridAPI(apiKey);
+      const results = await Promise.all(
+        currentLinks.map(async (l) => {
+          try {
+            const data = await api.getUnrestrictedLink(l);
+            return data.download;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      const downloads = results.filter((r): r is string => !!r);
+      if (downloads.length === 0) {
+        toastManager.error('Failed to prepare downloads');
+        return;
+      }
+
+      downloads.forEach((url) => openUrlInBrowser(url));
+      toastManager.success(`Started ${downloads.length} download${downloads.length === 1 ? '' : 's'}`);
+      error = '';
+    } catch (err) {
+      const appError = err as AppError;
+      error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to start downloads');
+      console.error('Error starting downloads:', err);
+    } finally {
+      bulkDownloadLoading = false;
+    }
+  }
+
+  async function viewSelectedFiles(torrent: Torrent) {
+    const { id } = torrent;
+    if (!apiKey) {return;}
+    if (viewFilesLoading[id]) {return;}
+
+    viewFilesLoading[id] = true;
+    viewFilesNotice = '';
+
+    try {
+      const api = new RealDebridAPI(apiKey);
+      const info = await api.getTorrentInfo(id);
+      const files = info.files ?? [];
+      const selected = files.filter((f) => f.selected === 1);
+
+      const list = selected.length ? selected : files;
+      viewFiles = list;
+      viewFilesTitle = torrent.filename;
+
+      if (selected.length === 0 && files.length > 0) {
+        viewFilesNotice = 'No files are marked selected. Showing all available files.';
+      } else if (files.length === 0) {
+        viewFilesNotice = 'No file information available for this torrent yet.';
+      }
+
+      showViewFilesModal = true;
+      error = '';
+    } catch (err) {
+      const appError = err as AppError;
+      error = appError.userMessage || appError.message;
+      toastManager.error(appError.userMessage || 'Failed to load file list');
+      console.error('Error viewing selected files:', err);
+    } finally {
+      viewFilesLoading[id] = false;
     }
   }
 
@@ -185,16 +389,13 @@
       console.log('Raw torrent data from API:', data);
       console.log('Torrent statuses:', data.map(t => ({ id: t.id, filename: t.filename, status: t.status })));
 
-      const filteredTorrents = data.filter(
-        t =>
-          t.status === 'downloaded' ||
-          t.status === 'waiting_files_selection' ||
-          t.status === 'magnet_conversion' ||
-          t.status === 'magnet_error'
-      );
+      const filteredTorrents = data.filter((t) => VISIBLE_STATUSES.has(t.status));
       
       console.log('Filtered torrents:', filteredTorrents.map(t => ({ id: t.id, filename: t.filename, status: t.status })));
       torrents = filteredTorrents;
+      const validIds = new Set(filteredTorrents.map((t) => t.id));
+      selectedTorrentIds = selectedTorrentIds.filter((id) => validIds.has(id));
+      await hydrateTorrentStats(filteredTorrents);
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
@@ -205,19 +406,55 @@
     }
   }
 
-  async function deleteTorrent(torrentId: string) {
+  export async function refresh() {
+    await fetchTorrents();
+  }
+
+  async function deleteTorrents(torrentIds: string[]) {
+    if (!torrentIds.length) {return;}
+
     deletingTorrent = true;
     try {
       const api = new RealDebridAPI(apiKey);
-      await api.deleteTorrent(torrentId);
-      await fetchTorrents();
-      toastManager.success('Torrent deleted successfully');
-      error = '';
+      const BATCH_SIZE = 2;
+      const DELAY_MS = 800;
+      const results: PromiseSettledResult<void>[] = [];
+
+      for (let i = 0; i < torrentIds.length; i += BATCH_SIZE) {
+        const batch = torrentIds.slice(i, i + BATCH_SIZE);
+        const batchResults = await Promise.allSettled(batch.map((id) => api.deleteTorrent(id)));
+        results.push(...batchResults);
+
+        if (i + BATCH_SIZE < torrentIds.length) {
+          await new Promise(resolve => setTimeout(resolve, DELAY_MS));
+        }
+      }
+
+      const failed = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      const deletedCount = torrentIds.length - failed.length;
+
+      if (deletedCount) {
+        await fetchTorrents();
+        selectedTorrentIds = selectedTorrentIds.filter((id) => !torrentIds.includes(id));
+        toastManager.success(`Deleted ${deletedCount} torrent${deletedCount === 1 ? '' : 's'} successfully`);
+        error = '';
+      }
+
+      if (failed.length) {
+        const failure = failed[0].reason as AppError | Error;
+        const message =
+          failure && typeof failure === 'object' && 'userMessage' in failure
+            ? (failure as AppError).userMessage
+            : 'Failed to delete some torrents';
+        error = message;
+        toastManager.error(message);
+        failed.forEach((f) => console.error('Failed to delete torrent:', f.reason));
+      }
     } catch (err) {
       const appError = err as AppError;
       error = appError.userMessage || appError.message;
-      toastManager.error(appError.userMessage || 'Failed to delete torrent');
-      console.error('Error deleting torrent:', err);
+      toastManager.error(appError.userMessage || 'Failed to delete torrents');
+      console.error('Error deleting torrents:', err);
     } finally {
       deletingTorrent = false;
     }
@@ -260,26 +497,155 @@
     }
   }
 
+  function setTorrentSelection(torrentId: string, isSelected: boolean) {
+    if (isSelected) {
+      if (!selectedTorrentIds.includes(torrentId)) {
+        selectedTorrentIds = [...selectedTorrentIds, torrentId];
+      }
+    } else {
+      selectedTorrentIds = selectedTorrentIds.filter((id) => id !== torrentId);
+    }
+  }
+
+  function selectAllTorrents() {
+    if (!torrents.length) {
+      selectedTorrentIds = [];
+      return;
+    }
+
+    const next = new Set(selectedTorrentIds);
+    torrents.forEach((torrent) => next.add(torrent.id));
+    selectedTorrentIds = Array.from(next);
+  }
+
+  function clearSelectedTorrents() {
+    selectedTorrentIds = [];
+  }
+
+  function getTorrentFileStats(torrent: Torrent) {
+    const stats = torrentStats[torrent.id];
+    const selected = stats?.selected ?? (torrent.links?.length ?? 0);
+    const total = stats?.total ?? null;
+    return { selected, total };
+  }
+
+  function getTorrentFileCountLabel(torrent: Torrent) {
+    const { selected, total } = getTorrentFileStats(torrent);
+    const totalPart = total !== null ? `/${total}` : '/?';
+    return `${selected}${totalPart}`;
+  }
+
   $effect(() => {
     if (apiKey) {
       fetchTorrents();
     }
   });
+
+  async function hydrateTorrentStats(list: Torrent[]) {
+    if (!list.length) {
+      torrentStats = {};
+      return;
+    }
+
+    try {
+      const api = new RealDebridAPI(apiKey);
+      const results = await Promise.allSettled(
+        list.map(async (torrent) => {
+          const info = await api.getTorrentInfo(torrent.id);
+          const files = info.files ?? [];
+          const total = files.length > 0 ? files.length : null;
+          const selectedFromFiles = files.filter((f) => f.selected === 1).length;
+          const selected = selectedFromFiles > 0
+            ? selectedFromFiles
+            : (info.links?.length ?? torrent.links?.length ?? 0);
+
+          return {
+            id: torrent.id,
+            total,
+            selected,
+          };
+        })
+      );
+
+      const next: Record<string, { selected: number; total: number | null }> = {};
+      list.forEach((torrent) => {
+        if (torrentStats[torrent.id]) {
+          next[torrent.id] = torrentStats[torrent.id];
+        }
+      });
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          const { id, total, selected } = result.value;
+          next[id] = { total, selected };
+        }
+      });
+
+      torrentStats = next;
+    } catch (err) {
+      console.error('Error fetching torrent stats:', err);
+    }
+  }
 </script>
 
 <div class="torrent-manager">
-  <div class="columns is-mobile is-vcentered mb-3">
-    <div class="column">
-      <h2 class="title is-5 mb-0">Active Torrents</h2>
+  <div class="manager-header">
+    <div class="manager-heading">
+      <h2>Active Torrents</h2>
+      <p class="subtle">Downloaded items stay visible so you can grab links or clean them up.</p>
     </div>
-    <div class="column is-narrow">
-      <div class="buttons are-small">
-        <AddMagnet {apiKey} onMagnetAdded={fetchTorrents} />
-        <button class="button is-info is-small" onclick={fetchTorrents} disabled={loading}>
+    <div class="manager-toolbar">
+      <div class="toolbar-row-primary">
+        <button class="toolbar-button add-magnet-btn" onclick={triggerAddMagnet}>
+          <span class="icon">
+            <i class="fas fa-magnet"></i>
+          </span>
+          <span>Send Magnet</span>
+        </button>
+        <button class="toolbar-button button is-info is-small" onclick={fetchTorrents} disabled={loading}>
           <span class="icon">
             <i class="fas fa-sync-alt" class:fa-spin={loading}></i>
           </span>
           <span>Refresh</span>
+        </button>
+      </div>
+
+      <div class="toolbar-row-secondary">
+        <button
+          class="toolbar-button button is-light is-small"
+          onclick={selectAllTorrents}
+          disabled={totalTorrents === 0 || allTorrentsSelected}
+        >
+          <span class="icon">
+            <i class="fas fa-check-double"></i>
+          </span>
+          <span>Select All</span>
+        </button>
+        <button
+          class="toolbar-button button is-light is-small"
+          onclick={clearSelectedTorrents}
+          disabled={!hasSelection}
+        >
+          <span class="icon">
+            <i class="fas" class:fa-square={!hasSelection} class:fa-minus-square={partiallySelected} class:fa-check-square={allTorrentsSelected}></i>
+          </span>
+          <span>Clear Selection</span>
+        </button>
+        <button
+          class="toolbar-button button is-danger is-small"
+          disabled={!hasSelection}
+          onclick={() => {
+            torrentsToDelete = [...selectedTorrentIds];
+            torrentsToDeleteNames = selectedTorrentIds.map((id) => {
+              const match = torrents.find((t) => t.id === id);
+              return match ? match.filename : id;
+            });
+            showDeleteModal = true;
+          }}
+        >
+          <span class="icon">
+            <i class="fas fa-trash"></i>
+          </span>
+          <span>Delete Selected</span>
         </button>
       </div>
     </div>
@@ -302,86 +668,139 @@
     <div class="notification is-info is-light">No active torrents found.</div>
   {:else}
     <div class="torrents-list">
-      {#each torrents as torrent}
-        <div class="box torrent-item">
-          <div class="level is-mobile">
-            <div class="level-left">
-              <div class="level-item">
-                <div class="torrent-info">
-                  <p class="title is-6 torrent-filename" title={torrent.filename}>
-                    {torrent.filename}
-                  </p>
-                  <div class="torrent-meta">
-                    <span
-                      class="tag status-tag"
-                      class:is-waiting={torrent.status === 'waiting_files_selection' ||
-                        torrent.status === 'magnet_conversion'}
-                      class:is-downloaded={torrent.status === 'downloaded'}
-                      class:is-error={torrent.status === 'magnet_error'}
-                    >
-                      {torrent.status === 'waiting_files_selection' ||
-                      torrent.status === 'magnet_conversion'
-                        ? 'Waiting'
-                        : torrent.status === 'magnet_error'
-                        ? 'Error'
-                        : 'Downloaded'}
-                    </span>
-                    <span class="size-tag">
-                      {(torrent.bytes / (1024 * 1024)).toFixed(1)} MB
-                    </span>
-                  </div>
-                </div>
-              </div>
+      {#each torrents as torrent (torrent.id)}
+        <div
+          class="torrent-row"
+          class:is-selected={selectedTorrentIds.includes(torrent.id)}
+        >
+          <div class="torrent-checkbox">
+            <input
+              type="checkbox"
+              checked={selectedTorrentIds.includes(torrent.id)}
+              onchange={(event) =>
+                setTorrentSelection(torrent.id, (event.currentTarget as HTMLInputElement).checked)
+              }
+              aria-label={`Select ${torrent.filename}`}
+            />
+          </div>
+          <div class="torrent-body">
+            <div class="torrent-name-row">
+              <p class="torrent-name" title={torrent.filename}>
+                {torrent.filename}
+              </p>
             </div>
-            <div class="level-right">
-              {#if torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion' || torrent.status === 'magnet_error'}
-                <button
-                  class="button is-small mr-2"
-                  class:is-success={torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion'}
-                  class:is-warning={torrent.status === 'magnet_error'}
-                  onclick={() => getTorrentInfo(torrent.id)}
+            <div class="torrent-status-row">
+              <div class="status-meta">
+                <span
+                  class="tag status-tag"
+                  class:is-waiting={WAITING_STATUSES.has(torrent.status)}
+                  class:is-downloaded={torrent.status === 'downloaded'}
+                  class:is-active={ACTIVE_STATUSES.has(torrent.status)}
+                  class:is-error={ERROR_STATUSES.has(torrent.status)}
                 >
-                  <span class="icon">
-                    <i class="fas fa-file-import"></i>
-                  </span>
-                  <span>{torrent.status === 'magnet_error' ? 'Retry Files' : 'Select Files'}</span>
-                </button>
-              {:else if torrent.status === 'downloaded' && torrent.links?.length > 0}
+                  {getStatusLabel(torrent.status)}
+                </span>
+                <span class="size-tag">
+                  {(torrent.bytes / (1024 * 1024)).toFixed(1)} MB
+                </span>
+                <span class="file-count" title={`Files selected for download: ${getTorrentFileCountLabel(torrent)}`}>
+                  {getTorrentFileCountLabel(torrent)}
+                </span>
                 <button
-                  class="button is-info is-small mr-2"
-                  onclick={() => openLinksModal(torrent)}
-                  disabled={loadingLinks[torrent.id]}
-                  aria-label={torrent.links.length === 1 ? 'Get link' : 'Get links'}
+                  class="view-files-btn"
+                  onclick={() => viewSelectedFiles(torrent)}
+                  disabled={!!viewFilesLoading[torrent.id]}
+                  aria-label="View selected files"
                 >
-                  <span class="icon">
+                  <span class="icon is-small">
                     <i
                       class="fas"
-                      class:fa-link={!loadingLinks[torrent.id]}
-                      class:fa-spinner={loadingLinks[torrent.id]}
-                      class:fa-spin={loadingLinks[torrent.id]}
+                      class:fa-list={!viewFilesLoading[torrent.id]}
+                      class:fa-spinner={!!viewFilesLoading[torrent.id]}
+                      class:fa-spin={!!viewFilesLoading[torrent.id]}
                     ></i>
                   </span>
-                  <span>
-                    {loadingLinks[torrent.id]
-                      ? 'Preparing...'
-                      : torrent.links.length === 1
-                      ? 'Get Link'
-                      : 'Get Links'}
+                  <span>{viewFilesLoading[torrent.id] ? 'Loading...' : 'View Files'}</span>
+                </button>
+                {#if typeof torrent.progress === 'number' && torrent.progress > 0 && torrent.progress < 100}
+                  <span class="progress-text">{Math.round(torrent.progress)}%</span>
+                {/if}
+              </div>
+            </div>
+            <div class="torrent-actions-row">
+              <div class="torrent-actions">
+                {#if torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion' || torrent.status === 'magnet_error'}
+                  <button
+                    class="button is-small"
+                    class:is-success={torrent.status === 'waiting_files_selection' || torrent.status === 'magnet_conversion'}
+                    class:is-warning={torrent.status === 'magnet_error'}
+                    onclick={() => getTorrentInfo(torrent.id)}
+                  >
+                    <span class="icon">
+                      <i class="fas fa-file-import"></i>
+                    </span>
+                    <span>{torrent.status === 'magnet_error' ? 'Retry Files' : 'Select Files'}</span>
+                  </button>
+                {:else if torrent.links?.length > 0}
+                  <button
+                    class="button is-primary is-small"
+                    onclick={() => handleTorrentLinks(torrent, 'download')}
+                    disabled={loadingLinks[torrent.id]}
+                    aria-label={torrent.links.length === 1 ? 'Download file' : 'Download files'}
+                  >
+                    <span class="icon">
+                      <i
+                        class="fas"
+                        class:fa-download={!loadingLinks[torrent.id]}
+                        class:fa-spinner={loadingLinks[torrent.id]}
+                        class:fa-spin={loadingLinks[torrent.id]}
+                      ></i>
+                    </span>
+                    <span>
+                      {loadingLinks[torrent.id]
+                        ? 'Preparing...'
+                        : torrent.links.length === 1
+                        ? 'Download'
+                        : 'Download'}
+                    </span>
+                  </button>
+                  <button
+                    class="button is-info is-small"
+                    onclick={() => handleTorrentLinks(torrent, 'copy')}
+                    disabled={loadingLinks[torrent.id]}
+                    aria-label={torrent.links.length === 1 ? 'Copy link' : 'Copy links'}
+                  >
+                    <span class="icon">
+                      <i
+                        class="fas"
+                        class:fa-link={!loadingLinks[torrent.id]}
+                        class:fa-spinner={loadingLinks[torrent.id]}
+                        class:fa-spin={loadingLinks[torrent.id]}
+                      ></i>
+                    </span>
+                    <span>
+                      {loadingLinks[torrent.id]
+                        ? 'Preparing...'
+                        : torrent.links.length === 1
+                        ? 'Copy Link'
+                        : 'Copy Links'}
+                    </span>
+                  </button>
+                {/if}
+                <button
+                  class="button is-danger is-small"
+                  onclick={() => {
+                    showDeleteModal = true;
+                    torrentsToDelete = [torrent.id];
+                    torrentsToDeleteNames = [torrent.filename];
+                  }}
+                  aria-label="Delete torrent"
+                >
+                  <span class="icon">
+                    <i class="fas fa-trash"></i>
                   </span>
                 </button>
-              {/if}
-              <button
-                class="button is-danger is-small"
-                onclick={() => {
-                  showDeleteModal = true;
-                  torrentToDelete = torrent.id;
-                }}
-                aria-label="Delete torrent"
-              >
-                <span class="icon">
-                  <i class="fas fa-trash"></i>
-                </span>
-              </button>
+              </div>
             </div>
           </div>
         </div>
@@ -391,117 +810,289 @@
 </div>
 <!-- File Selection Modal -->
 <div class="modal" class:is-active={showFileModal}>
-  <div class="modal-background"></div>
-  <div class="modal-card file-selection">
-    <header class="modal-card-head">
-      <p class="modal-card-title">Select Files</p>
-      <button class="delete" aria-label="close" onclick={() => (showFileModal = false)}></button>
-    </header>
-    <section class="modal-card-body">
-      <div class="field">
-        <label class="checkbox">
-          <input
-            type="checkbox"
-            checked={selectedFiles.length === currentTorrentFiles.length}
-            onclick={toggleAllFiles}
-          />
-          Select All Files
-        </label>
-      </div>
-      <div class="file-list">
-        {#each currentTorrentFiles as file}
-          <div class="file-item">
-            <label class="checkbox">
-              <input
-                type="checkbox"
-                checked={selectedFiles.includes(file.id)}
-                onclick={() => toggleFile(file.id)}
-              />
-              <span class="filename">{file.path.split('/').pop()}</span>
-              <span class="filesize">{(file.bytes / (1024 * 1024)).toFixed(1)} MB</span>
-            </label>
+  <div class="modal-background" onclick={() => (showFileModal = false)}></div>
+  <div class="modal-content file-selection-content">
+    <div class="file-selection-card">
+      <header class="file-selection-card__header">
+        <div class="file-selection-card__title">
+          <i class="fas fa-file-import"></i>
+          <span>Select Files</span>
+        </div>
+        <p class="file-selection-card__subtitle">Choose which files to download from this torrent.</p>
+
+        <div class="file-selection-stats">
+          <div class="stat-item">
+            <span class="stat-label">Selected:</span>
+            <span class="stat-value">{selectedFileCount} of {totalFileCount} files</span>
           </div>
-        {/each}
-      </div>
-    </section>
-    <footer class="modal-card-foot">
-      <button class="button is-success" onclick={selectFiles} disabled={selectedFiles.length === 0}>
-        Download Selected
-      </button>
-      <button class="button" onclick={() => (showFileModal = false)}>Cancel</button>
-    </footer>
+          <div class="stat-item">
+            <span class="stat-label">Size:</span>
+            <span class="stat-value">{formatFileSize(selectedFilesTotalSize())}</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="file-selection-card__body">
+        <div class="select-all-section">
+          <label class="checkbox select-all-checkbox">
+            <input
+              type="checkbox"
+              checked={selectedFiles.length === currentTorrentFiles.length}
+              onclick={toggleAllFiles}
+            />
+            Select All Files
+          </label>
+        </div>
+
+        <div class="file-list-container">
+          {#each currentTorrentFiles as file (file.id)}
+            <div class="file-item">
+              <label class="checkbox file-checkbox">
+                <input
+                  type="checkbox"
+                  checked={selectedFiles.includes(file.id)}
+                  onclick={() => toggleFile(file.id)}
+                />
+                <span class="filename">{file.path.split('/').pop()}</span>
+                <span class="filesize">{(file.bytes / (1024 * 1024)).toFixed(1)} MB</span>
+              </label>
+            </div>
+          {/each}
+        </div>
+      </section>
+
+      <footer class="file-selection-card__footer">
+        <button class="button is-light" onclick={() => (showFileModal = false)}>Cancel</button>
+        <button class="button is-success" onclick={selectFiles} disabled={selectedFiles.length === 0}>
+          <span class="icon">
+            <i class="fas fa-download"></i>
+          </span>
+          <span>Download Selected</span>
+        </button>
+      </footer>
+    </div>
   </div>
+  <button onclick={() => (showFileModal = false)} class="modal-close is-large" aria-label="close"></button>
 </div>
 
 <!-- Links Modal -->
 <div class="modal" class:is-active={showLinksModal}>
-  <div class="modal-background"></div>
-  <div class="modal-card links-modal">
-    <header class="modal-card-head">
-      <p class="modal-card-title">Download Links</p>
-      <button class="delete" aria-label="close" onclick={() => (showLinksModal = false)}></button>
-    </header>
-    <section class="modal-card-body">
-      <div class="links-actions">
-        <button class="button is-info" onclick={copyAllLinks} disabled={bulkLinksLoading}>
-          <span class="icon">
-            <i class="fas" class:fa-copy={!bulkLinksLoading} class:fa-spinner={bulkLinksLoading} class:fa-spin={bulkLinksLoading}></i>
-          </span>
-          <span>{bulkLinksLoading ? 'Copying...' : 'Copy All'}</span>
-        </button>
-      </div>
-      <div class="links-list">
-        {#each currentLinks as link, i}
-          <div class="link-item">
-            <div class="link-name" title={currentLinkNames[i] || `File ${i + 1}`}>
-              {currentLinkNames[i] || `File ${i + 1}`}
+  <div class="modal-background" onclick={() => (showLinksModal = false)}></div>
+  <div class="modal-content links-content">
+    <div class="links-card">
+      <header class="links-card__header">
+        <div class="links-card__title">
+          <i class="fas fa-link"></i>
+          <span>Download Links</span>
+        </div>
+        <p class="links-card__subtitle">Download or copy links for the selected torrent files.</p>
+      </header>
+
+      <section class="links-card__body">
+        <div class="links-actions-section">
+          <button class="button is-primary" onclick={downloadAllLinks} disabled={bulkDownloadLoading}>
+            <span class="icon">
+              <i
+                class="fas"
+                class:fa-download={!bulkDownloadLoading}
+                class:fa-spinner={bulkDownloadLoading}
+                class:fa-spin={bulkDownloadLoading}
+              ></i>
+            </span>
+            <span>{bulkDownloadLoading ? 'Starting...' : 'Download All'}</span>
+          </button>
+          <button class="button is-info" onclick={copyAllLinks} disabled={bulkCopyLoading}>
+            <span class="icon">
+              <i
+                class="fas"
+                class:fa-copy={!bulkCopyLoading}
+                class:fa-spinner={bulkCopyLoading}
+                class:fa-spin={bulkCopyLoading}
+              ></i>
+            </span>
+            <span>{bulkCopyLoading ? 'Copying...' : 'Copy All'}</span>
+          </button>
+        </div>
+
+        <div class="links-list-container">
+          {#each currentLinks as link, i (`${link}-${i}`)}
+            <div class="link-item">
+              <div class="link-name" title={currentLinkNames[i] || `File ${i + 1}`}>
+                {currentLinkNames[i] || `File ${i + 1}`}
+              </div>
+              <div class="link-actions">
+                <button class="button is-small is-primary" onclick={() => downloadSingleLink(i)} disabled={!!perDownloadLoading[i]}>
+                  <span class="icon is-small">
+                    <i
+                      class="fas"
+                      class:fa-download={!perDownloadLoading[i]}
+                      class:fa-spinner={!!perDownloadLoading[i]}
+                      class:fa-spin={!!perDownloadLoading[i]}
+                    ></i>
+                  </span>
+                  <span>{perDownloadLoading[i] ? 'Starting...' : 'Download'}</span>
+                </button>
+                <button class="button is-small" onclick={() => copySingleLink(i)} disabled={!!perCopyLoading[i]}>
+                  <span class="icon is-small">
+                    <i
+                      class="fas"
+                      class:fa-copy={!perCopyLoading[i]}
+                      class:fa-spinner={!!perCopyLoading[i]}
+                      class:fa-spin={!!perCopyLoading[i]}
+                    ></i>
+                  </span>
+                  <span>{perCopyLoading[i] ? 'Copying...' : 'Copy'}</span>
+                </button>
+              </div>
             </div>
-            <div class="link-actions">
-              <button class="button is-small" onclick={() => copySingleLink(i)} disabled={!!perLinkLoading[i]}>
-                <span class="icon is-small">
-                  <i class="fas" class:fa-copy={!perLinkLoading[i]} class:fa-spinner={!!perLinkLoading[i]} class:fa-spin={!!perLinkLoading[i]}></i>
-                </span>
-                <span>{perLinkLoading[i] ? 'Copying...' : 'Copy'}</span>
-              </button>
-            </div>
-          </div>
-        {/each}
-      </div>
-    </section>
-    <footer class="modal-card-foot">
-      <button class="button" onclick={() => (showLinksModal = false)}>Close</button>
-    </footer>
+          {/each}
+        </div>
+      </section>
+
+      <footer class="links-card__footer">
+        <button class="button is-light" onclick={() => (showLinksModal = false)}>Close</button>
+      </footer>
+    </div>
   </div>
-  
+  <button onclick={() => (showLinksModal = false)} class="modal-close is-large" aria-label="close"></button>
+</div>
+
+<!-- View Selected Files Modal -->
+<div class="modal" class:is-active={showViewFilesModal}>
+  <div class="modal-background" onclick={() => {
+    showViewFilesModal = false;
+    viewFiles = [];
+    viewFilesTitle = '';
+    viewFilesNotice = '';
+  }}></div>
+  <div class="modal-content view-files-content">
+    <div class="view-files-card">
+      <header class="view-files-card__header">
+        <div class="view-files-card__title">
+          <i class="fas fa-list"></i>
+          <span>Files for {viewFilesTitle}</span>
+        </div>
+        <p class="view-files-card__subtitle">Viewing files selected for download in this torrent.</p>
+      </header>
+
+      <section class="view-files-card__body">
+        {#if viewFilesNotice}
+          <div class="view-files-notice">
+            <i class="fas fa-info-circle"></i>
+            <span>{viewFilesNotice}</span>
+          </div>
+        {/if}
+
+        {#if viewFiles.length === 0}
+          <div class="view-files-empty">
+            <i class="fas fa-folder-open"></i>
+            <span>No files to display.</span>
+          </div>
+        {:else}
+          <div class="view-files-list-container">
+            {#each viewFiles as file (file.id)}
+              <div class="view-file-item">
+                <span class="view-file-name" title={file.path}>{file.path.split('/').pop()}</span>
+                <span class="view-file-size">{formatFileSize(file.bytes)}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </section>
+
+      <footer class="view-files-card__footer">
+        <button
+          class="button is-light"
+          onclick={() => {
+            showViewFilesModal = false;
+            viewFiles = [];
+            viewFilesTitle = '';
+            viewFilesNotice = '';
+          }}
+        >
+          Close
+        </button>
+      </footer>
+    </div>
+  </div>
+  <button onclick={() => {
+    showViewFilesModal = false;
+    viewFiles = [];
+    viewFilesTitle = '';
+    viewFilesNotice = '';
+  }} class="modal-close is-large" aria-label="close"></button>
 </div>
 
 <!-- Delete Confirmation Modal -->
 <div class="modal" class:is-active={showDeleteModal}>
-  <div class="modal-background"></div>
-  <div class="modal-card delete-confirmation">
-    <header class="modal-card-head">
-      <p class="modal-card-title">Confirm Delete</p>
-      <button class="delete" aria-label="close" onclick={() => (showDeleteModal = false)}></button>
-    </header>
-    <section class="modal-card-body">
-      <p>Are you sure you want to delete this torrent? This action cannot be undone.</p>
-    </section>
-    <footer class="modal-card-foot">
-      <button
-        class="button is-danger"
-        class:is-loading={deletingTorrent}
-        disabled={deletingTorrent}
-        onclick={async () => {
-          await deleteTorrent(torrentToDelete);
-          showDeleteModal = false;
-          torrentToDelete = '';
-        }}
-      >
-        Delete
-      </button>
-      <button class="button" onclick={() => (showDeleteModal = false)}> Cancel </button>
-    </footer>
+  <div class="modal-background" onclick={() => {
+    showDeleteModal = false;
+    torrentsToDelete = [];
+    torrentsToDeleteNames = [];
+  }}></div>
+  <div class="modal-content delete-confirmation-content">
+    <div class="delete-confirmation-card">
+      <header class="delete-confirmation-card__header">
+        <div class="delete-confirmation-card__title">
+          <i class="fas fa-exclamation-triangle"></i>
+          <span>Confirm Delete</span>
+        </div>
+        <p class="delete-confirmation-card__subtitle">This action cannot be undone.</p>
+      </header>
+
+      <section class="delete-confirmation-card__body">
+        <div class="delete-confirmation-message">
+          {#if torrentsToDelete.length === 1}
+            Are you sure you want to delete <span class="deleted-asset">{torrentsToDeleteNames[0] ?? 'this torrent'}</span>?
+          {:else}
+            Are you sure you want to delete <span class="deleted-asset">{torrentsToDelete.length} torrents</span>?
+          {/if}
+        </div>
+
+        {#if torrentsToDelete.length > 1}
+          <div class="delete-list-container">
+            {#each torrentsToDeleteNames as name, i (`${name}-${i}`)}
+              <div class="delete-list-item">{name}</div>
+            {/each}
+          </div>
+        {/if}
+      </section>
+
+      <footer class="delete-confirmation-card__footer">
+        <button
+          class="button is-light"
+          onclick={() => {
+            showDeleteModal = false;
+            torrentsToDelete = [];
+            torrentsToDeleteNames = [];
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          class="button is-danger"
+          class:is-loading={deletingTorrent}
+          disabled={deletingTorrent}
+          onclick={async () => {
+            await deleteTorrents(torrentsToDelete);
+            showDeleteModal = false;
+            torrentsToDelete = [];
+            torrentsToDeleteNames = [];
+          }}
+        >
+          <span class="icon">
+            <i class="fas fa-trash"></i>
+          </span>
+          <span>{deletingTorrent ? 'Deleting...' : 'Delete'}</span>
+        </button>
+      </footer>
+    </div>
   </div>
+  <button onclick={() => {
+    showDeleteModal = false;
+    torrentsToDelete = [];
+    torrentsToDeleteNames = [];
+  }} class="modal-close is-large" aria-label="close"></button>
 </div>
 
 
@@ -515,11 +1106,141 @@
     border: 1px solid #333;
   }
 
-  /* Title and Button Styles */
-  :global(.title.is-5) {
+  .manager-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+  }
+
+  .manager-heading {
+    flex: 1 1 260px;
+  }
+
+  .manager-heading h2 {
     color: #2196f3;
-    font-size: 1.1rem;
-    margin-bottom: 0;
+    font-size: 1.2rem;
+    margin: 0;
+  }
+
+  .subtle {
+    color: #8aa4c7;
+    font-size: 0.85rem;
+    margin-top: 0.35rem;
+    max-width: 28rem;
+  }
+
+  .manager-toolbar {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 0 1 100%;
+    padding: 1rem;
+    background: linear-gradient(135deg, rgba(30, 30, 30, 0.9), rgba(40, 40, 40, 0.9));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    backdrop-filter: blur(20px);
+  }
+
+  .toolbar-row-primary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    justify-content: center;
+  }
+
+  .toolbar-row-secondary {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .add-magnet-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+  }
+
+  .add-magnet-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.6);
+  }
+
+  .toolbar-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    padding: 0 1.25rem;
+    height: 2.5rem;
+    border-radius: 8px;
+    white-space: nowrap;
+    flex: 0 0 auto;
+    border: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(10px);
+  }
+
+  .toolbar-button.is-info {
+    background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(79, 172, 254, 0.4);
+  }
+
+  .toolbar-button.is-info:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(79, 172, 254, 0.6);
+  }
+
+  .toolbar-button.is-light {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05));
+    color: #e2e8f0;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  }
+
+  .toolbar-button.is-light:hover {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.1));
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+    border-color: rgba(255, 255, 255, 0.3);
+  }
+
+  .toolbar-button.is-danger {
+    background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(255, 107, 107, 0.4);
+  }
+
+  .toolbar-button.is-danger:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(255, 107, 107, 0.6);
+  }
+
+  .toolbar-button:active {
+    transform: translateY(0);
+  }
+
+  .toolbar-button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    pointer-events: none;
+    transform: none !important;
+    box-shadow: none !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    color: rgba(255, 255, 255, 0.3) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+  }
+
+  .toolbar-button .icon {
+    margin: 0;
   }
 
   :global(.button.is-info) {
@@ -530,101 +1251,187 @@
     background-color: #1976d2;
   }
 
-  /* Torrent Item Styles */
-  .torrent-item {
-    background-color: #2a2a2a;
-    margin-bottom: 0.75rem;
+  .torrents-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .torrent-row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    background-color: #242424;
     border: 1px solid #333;
-    transition: all 0.2s ease;
+    border-radius: 8px;
+    align-items: flex-start;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
   }
 
-  .torrent-item:hover {
-    border-color: #2196f3;
-    background-color: #323232;
-    transform: translateY(-1px);
-    box-shadow: 0 2px 8px rgba(33, 150, 243, 0.1);
+  .torrent-row:hover {
+    border-color: #2f80ed;
+    background-color: #2a2a2a;
   }
 
-  .torrent-item:last-child {
-    margin-bottom: 0;
+  .torrent-row.is-selected {
+    border-color: #2f80ed;
+    box-shadow: 0 0 0 1px rgba(47, 128, 237, 0.35);
   }
 
-  /* Level Layout Styles */
-  .level-left {
-    flex: 1;
+  .torrent-checkbox {
+    display: flex;
+    align-items: flex-start;
+    padding-top: 0.35rem;
+  }
+
+  .torrent-checkbox input {
+    width: 18px;
+    height: 18px;
+    accent-color: #ff3860;
+  }
+
+  .torrent-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
     min-width: 0;
-    max-width: calc(100% - 160px); /* Reserve space for buttons */
   }
 
-  .level-right {
-    flex-shrink: 0;
-    min-width: 160px;
-  }
-
-  .level-item {
-    flex: 1;
+  .torrent-name-row {
+    display: flex;
+    align-items: center;
     min-width: 0;
   }
 
-  .torrent-info {
+  .torrent-status-row {
+    display: flex;
+    align-items: center;
+  }
+
+  .torrent-actions-row {
     width: 100%;
-    min-width: 0;
   }
 
-  /* Torrent Title Styles */
-  :global(.torrent-item .title.is-6) {
+  .torrent-name {
+    font-size: 1rem;
+    font-weight: 600;
     color: #fff;
-    margin-bottom: 0.5rem;
-    max-width: 100%;
+    margin: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    cursor: help;
+    flex: 1 1 auto;
   }
 
-  .torrent-filename {
-    transition: color 0.2s ease;
-  }
-
-  .torrent-filename:hover {
+  .torrent-name:hover {
     color: #2196f3;
   }
 
-  /* Torrent Meta Styles */
-  .torrent-meta {
-    display: flex;
+  .torrent-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, max-content));
+    gap: 0.5rem;
+    justify-content: flex-start;
+    align-items: stretch;
+  }
+
+  .torrent-actions .button {
+    min-height: 2.1rem;
+    font-size: 0.85rem;
+    width: 100%;
+    display: inline-flex;
+    justify-content: center;
     align-items: center;
-    gap: 1rem;
-    max-width: 100%;
+    gap: 0.45rem;
+  }
+
+  .status-meta {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
     flex-wrap: wrap;
+    color: #9db3d4;
   }
 
   .status-tag {
     font-size: 0.75rem;
-    padding: 0.25rem 0.5rem;
-    border-radius: 4px;
-    font-weight: 500;
+    padding: 0.2rem 0.55rem;
+    border-radius: 999px;
+    font-weight: 600;
+    letter-spacing: 0.03em;
   }
 
   .status-tag.is-waiting {
-    background-color: rgba(255, 193, 7, 0.2);
-    color: #ffc107;
+    background-color: rgba(255, 193, 7, 0.18);
+    color: #ffca28;
+  }
+
+  .status-tag.is-active {
+    background-color: rgba(33, 150, 243, 0.18);
+    color: #64b5f6;
   }
 
   .status-tag.is-downloaded {
     background-color: rgba(76, 175, 80, 0.2);
-    color: #4caf50;
+    color: #72d572;
   }
+
   .status-tag.is-error {
-    background-color: rgba(244, 67, 54, 0.2);
-    color: #f44336;
+    background-color: rgba(244, 67, 54, 0.18);
+    color: #ef5350;
   }
 
   .size-tag {
-    color: #90caf9;
-    font-size: 0.8rem;
+    color: #9db3d4;
     font-weight: 500;
   }
+
+  .file-count {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #b3c7e7;
+    background-color: rgba(59, 130, 246, 0.15);
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+  }
+
+  .progress-text {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #64b5f6;
+  }
+
+  .view-files-btn {
+    border: none;
+    background-color: rgba(59, 130, 246, 0.12);
+    color: #90caf9;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 999px;
+    padding: 0.15rem 0.55rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+  }
+
+  .view-files-btn:hover {
+    background-color: rgba(59, 130, 246, 0.2);
+  }
+
+  .view-files-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .view-files-btn .icon {
+    margin: 0;
+    display: inline-flex;
+  }
+
 
   /* Modal Styles */
   .modal-card {
@@ -655,24 +1462,11 @@
     padding: 0;
   }
 
-  /* Links modal */
-  .links-modal .modal-card-body {
-    padding: 0;
+  .modal-card-body .deleted-asset {
+    font-weight: 600;
+    color: #ff3860;
   }
 
-  .links-actions {
-    padding: 1rem;
-    border-bottom: 1px solid #333;
-    background-color: #2a2a2a;
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .links-list {
-    max-height: 60vh;
-    overflow-y: auto;
-    padding: 0.5rem 0.75rem 1rem;
-  }
 
   .link-item {
     display: grid;
@@ -693,35 +1487,131 @@
     font-size: 0.95rem;
   }
 
-  /* Select all checkbox container */
-  .field {
-    padding: 1rem;
-    border-bottom: 1px solid #333;
-    background-color: #2a2a2a;
+  .link-actions {
+    display: flex;
+    gap: 0.5rem;
   }
 
-  .field .checkbox {
+  /* File Selection Modal Styles */
+  .file-selection-content {
+    max-width: 600px;
+    width: calc(100% - 2rem);
+    margin: 3rem auto;
+  }
+
+  .file-selection-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.96), rgba(34, 34, 34, 0.96));
+    border-radius: 12px;
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem 1.65rem 1.35rem;
+    max-height: calc(100vh - 6rem);
+  }
+
+  .file-selection-card__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+
+  .file-selection-card__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+  }
+
+  .file-selection-card__title i {
+    color: #3b82f6;
+    text-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
+  }
+
+  .file-selection-card__subtitle {
+    margin: 0;
+    color: #9db3d4;
+    font-size: 0.85rem;
+  }
+
+  .file-selection-stats {
+    display: flex;
+    gap: 1.5rem;
+    margin-top: 0.75rem;
+    padding: 0.75rem 1rem;
+    background-color: rgba(30, 30, 30, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+  }
+
+  .stat-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .stat-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #90caf9;
+    font-weight: 600;
+  }
+
+  .stat-value {
+    font-size: 0.9rem;
+    color: #fff;
+    font-weight: 500;
+  }
+
+  .file-selection-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .select-all-section {
+    flex-shrink: 0;
+    padding: 0.75rem 1rem;
+    background-color: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 8px;
+  }
+
+  .select-all-checkbox {
     color: #fff;
     font-weight: 500;
     display: flex;
     align-items: center;
     gap: 0.5rem;
+    margin: 0;
   }
 
-  /* File list container */
-  .file-list {
-    max-height: 60vh;
+  .file-list-container {
+    flex: 1;
     overflow-y: auto;
-    padding: 0.5rem;
+    min-height: 0;
+    max-height: 50vh;
+    padding: 0.25rem;
   }
 
-  /* File item styles */
   .file-item {
     padding: 0.75rem 1rem;
-    border-radius: 6px;
+    border-radius: 8px;
     margin-bottom: 0.5rem;
-    background-color: #2a2a2a;
-    transition: background-color 0.2s ease;
+    background-color: rgba(42, 42, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    transition: all 0.2s ease;
   }
 
   .file-item:last-child {
@@ -729,10 +1619,11 @@
   }
 
   .file-item:hover {
-    background-color: #333;
+    background-color: rgba(59, 130, 246, 0.1);
+    border-color: rgba(59, 130, 246, 0.3);
   }
 
-  .file-item label {
+  .file-checkbox {
     display: grid;
     grid-template-columns: auto 1fr auto;
     align-items: center;
@@ -740,6 +1631,16 @@
     color: #fff;
     width: 100%;
     cursor: pointer;
+    margin: 0;
+  }
+
+  .file-selection-card__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
   }
 
   .filename {
@@ -769,22 +1670,405 @@
     gap: 0.75rem;
   }
 
-  /* Custom scrollbar */
-  .file-list::-webkit-scrollbar {
+  /* Custom scrollbar for file list */
+  .file-list-container::-webkit-scrollbar {
     width: 8px;
   }
 
-  .file-list::-webkit-scrollbar-track {
-    background: #1e1e1e;
-  }
-
-  .file-list::-webkit-scrollbar-thumb {
-    background: #333;
+  .file-list-container::-webkit-scrollbar-track {
+    background: rgba(30, 30, 30, 0.5);
     border-radius: 4px;
   }
 
-  .file-list::-webkit-scrollbar-thumb:hover {
-    background: #444;
+  .file-list-container::-webkit-scrollbar-thumb {
+    background: rgba(59, 130, 246, 0.6);
+    border-radius: 4px;
+  }
+
+  .file-list-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(59, 130, 246, 0.8);
+  }
+
+  /* Links Modal Styles */
+  .links-content {
+    max-width: 600px;
+    width: calc(100% - 2rem);
+    margin: 3rem auto;
+  }
+
+  .links-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.96), rgba(34, 34, 34, 0.96));
+    border-radius: 12px;
+    border: 1px solid rgba(33, 150, 243, 0.35);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem 1.65rem 1.35rem;
+    max-height: calc(100vh - 6rem);
+  }
+
+  .links-card__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+
+  .links-card__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+  }
+
+  .links-card__title i {
+    color: #2196f3;
+    text-shadow: 0 0 10px rgba(33, 150, 243, 0.6);
+  }
+
+  .links-card__subtitle {
+    margin: 0;
+    color: #9db3d4;
+    font-size: 0.85rem;
+  }
+
+  .links-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .links-actions-section {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    padding: 0.75rem 1rem;
+    background-color: rgba(33, 150, 243, 0.1);
+    border: 1px solid rgba(33, 150, 243, 0.2);
+    border-radius: 8px;
+  }
+
+  .links-list-container {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    max-height: 50vh;
+    padding: 0.25rem;
+  }
+
+  .links-card__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .links-list-container::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .links-list-container::-webkit-scrollbar-track {
+    background: rgba(30, 30, 30, 0.5);
+    border-radius: 4px;
+  }
+
+  .links-list-container::-webkit-scrollbar-thumb {
+    background: rgba(33, 150, 243, 0.6);
+    border-radius: 4px;
+  }
+
+  .links-list-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(33, 150, 243, 0.8);
+  }
+
+  /* View Files Modal Styles */
+  .view-files-content {
+    max-width: 600px;
+    width: calc(100% - 2rem);
+    margin: 3rem auto;
+  }
+
+  .view-files-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.96), rgba(34, 34, 34, 0.96));
+    border-radius: 12px;
+    border: 1px solid rgba(139, 69, 19, 0.35);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem 1.65rem 1.35rem;
+    max-height: calc(100vh - 6rem);
+  }
+
+  .view-files-card__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+
+  .view-files-card__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+  }
+
+  .view-files-card__title i {
+    color: #cd853f;
+    text-shadow: 0 0 10px rgba(205, 133, 63, 0.6);
+  }
+
+  .view-files-card__subtitle {
+    margin: 0;
+    color: #9db3d4;
+    font-size: 0.85rem;
+  }
+
+  .view-files-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .view-files-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background-color: rgba(33, 150, 243, 0.1);
+    border: 1px solid rgba(33, 150, 243, 0.2);
+    border-radius: 8px;
+    color: #90caf9;
+    font-size: 0.85rem;
+  }
+
+  .view-files-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 2rem;
+    color: #9db3d4;
+    text-align: center;
+  }
+
+  .view-files-empty i {
+    font-size: 2rem;
+    color: #cd853f;
+    opacity: 0.5;
+  }
+
+  .view-files-list-container {
+    flex: 1;
+    overflow-y: auto;
+    min-height: 0;
+    max-height: 50vh;
+    padding: 0.25rem;
+  }
+
+  .view-file-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+    background-color: rgba(42, 42, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    transition: all 0.2s ease;
+  }
+
+  .view-file-item:last-child {
+    margin-bottom: 0;
+  }
+
+  .view-file-item:hover {
+    background-color: rgba(205, 133, 63, 0.1);
+    border-color: rgba(205, 133, 63, 0.3);
+  }
+
+  .view-file-name {
+    color: #fff;
+    font-size: 0.95rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  .view-file-size {
+    color: #cd853f;
+    font-weight: 600;
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .view-files-card__footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .view-files-list-container::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .view-files-list-container::-webkit-scrollbar-track {
+    background: rgba(30, 30, 30, 0.5);
+    border-radius: 4px;
+  }
+
+  .view-files-list-container::-webkit-scrollbar-thumb {
+    background: rgba(205, 133, 63, 0.6);
+    border-radius: 4px;
+  }
+
+  .view-files-list-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(205, 133, 63, 0.8);
+  }
+
+  /* Delete Confirmation Modal Styles */
+  .delete-confirmation-content {
+    max-width: 500px;
+    width: calc(100% - 2rem);
+    margin: 3rem auto;
+  }
+
+  .delete-confirmation-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(20, 20, 20, 0.96), rgba(34, 34, 34, 0.96));
+    border-radius: 12px;
+    border: 1px solid rgba(220, 53, 69, 0.35);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    padding: 1.5rem 1.65rem 1.35rem;
+  }
+
+  .delete-confirmation-card__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex-shrink: 0;
+    text-align: center;
+  }
+
+  .delete-confirmation-card__title {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    font-size: 1.05rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #fff;
+  }
+
+  .delete-confirmation-card__title i {
+    color: #dc3545;
+    text-shadow: 0 0 10px rgba(220, 53, 69, 0.6);
+  }
+
+  .delete-confirmation-card__subtitle {
+    margin: 0;
+    color: #dc3545;
+    font-size: 0.85rem;
+    font-weight: 500;
+  }
+
+  .delete-confirmation-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    flex: 1;
+    text-align: center;
+  }
+
+  .delete-confirmation-message {
+    color: #fff;
+    font-size: 1rem;
+    line-height: 1.5;
+  }
+
+  .deleted-asset {
+    font-weight: 600;
+    color: #dc3545;
+  }
+
+  .delete-list-container {
+    max-height: 200px;
+    overflow-y: auto;
+    padding: 0.75rem 1rem;
+    background-color: rgba(30, 30, 30, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    text-align: left;
+  }
+
+  .delete-list-item {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    color: #ddd;
+    font-size: 0.9rem;
+  }
+
+  .delete-list-item:last-child {
+    border-bottom: none;
+  }
+
+  .delete-confirmation-card__footer {
+    display: flex;
+    justify-content: center;
+    gap: 0.75rem;
+    flex-shrink: 0;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .delete-list-container::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .delete-list-container::-webkit-scrollbar-track {
+    background: rgba(30, 30, 30, 0.5);
+    border-radius: 4px;
+  }
+
+  .delete-list-container::-webkit-scrollbar-thumb {
+    background: rgba(220, 53, 69, 0.6);
+    border-radius: 4px;
+  }
+
+  .delete-list-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(220, 53, 69, 0.8);
   }
 
   /* Checkbox styling */
@@ -811,16 +2095,6 @@
     padding: 0.5rem 1rem;
   }
 
-  /* Delete confirmation modal */
-  .delete-confirmation .modal-card-body {
-    padding: 1.5rem;
-    text-align: center;
-  }
-
-  .delete-confirmation .modal-card-foot {
-    justify-content: center;
-    padding: 1rem;
-  }
 
 
   :global(.notification.is-info.is-light) {
@@ -884,12 +2158,74 @@
 
   /* Responsive Styles */
   @media screen and (max-width: 600px) {
-    .modal-card {
-      margin: 0 0.5rem;
+
+    .file-selection-content,
+    .links-content,
+    .view-files-content {
+      margin: 1rem auto;
+      width: calc(100% - 1rem);
     }
 
-    .modal:has(.delete-confirmation) .modal-card {
-      width: calc(100% - 2rem);
+    .file-selection-card,
+    .links-card,
+    .view-files-card {
+      max-height: calc(100vh - 2rem);
+      padding: 1rem 1.25rem 1rem;
+    }
+
+    .delete-confirmation-content {
+      margin: 1rem auto;
+      width: calc(100% - 1rem);
+    }
+
+    .delete-confirmation-card {
+      max-height: calc(100vh - 2rem);
+      padding: 1rem 1.25rem 1rem;
+    }
+
+    .file-selection-stats {
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .stat-item {
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .links-actions-section {
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .manager-toolbar {
+      padding: 0.75rem;
+      gap: 0.75rem;
+    }
+
+    .toolbar-row-primary,
+    .toolbar-row-secondary {
+      gap: 0.5rem;
+      justify-content: center;
+    }
+
+    .toolbar-button {
+      height: 2.25rem;
+      font-size: 0.8rem;
+      padding: 0 1rem;
+      gap: 0.375rem;
+    }
+
+    .file-checkbox {
+      grid-template-columns: auto 1fr;
+      gap: 0.75rem;
+    }
+
+    .filesize {
+      grid-column: 1 / -1;
+      margin-top: 0.25rem;
+      font-size: 0.75rem;
     }
   }
 </style>
