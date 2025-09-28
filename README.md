@@ -4,6 +4,10 @@ A modern, powerful browser extension for seamlessly managing your Real-Debrid do
 
 ![Real-Debrid Manager Screenshot](screenshot.png)
 
+<video src="demo.mp4" controls muted loop playsinline style="max-width: 100%; border-radius: 12px; margin-top: 1rem;">
+  Sorry, your browser doesn't support embedded videos. You can download the demo instead.
+</video>
+
 > ✨ **Enhanced with toast notifications, context menu integration, and smart error handling**
 
 ## ✨ Features
